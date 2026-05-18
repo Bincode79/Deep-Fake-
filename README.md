@@ -156,9 +156,6 @@ Apple Silicon (M1/M2/M3) requires specific setup:
 # Install Python 3.11 (specific version is important)
 brew install python@3.11
 
-# Install tkinter package (required for the GUI)
-brew install python-tk@3.11
-
 # Create and activate virtual environment with Python 3.11
 python3.11 -m venv venv
 source venv/bin/activate
@@ -231,7 +228,6 @@ python3.11 run.py --execution-provider coreml
 **Important Notes for macOS:**
 - You **must** use Python 3.11, not newer versions like 3.13
 - Always run with `python3.11` command not just `python` if you have multiple Python versions installed
-- If you get error about `_tkinter` missing, reinstall the tkinter package: `brew reinstall python-tk@3.11`
 - If you get model loading errors, check that your models are in the correct folder
 - If you encounter conflicts with other Python versions, consider uninstalling them:
   ```bash

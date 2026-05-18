@@ -287,7 +287,90 @@ def _cuda_graph_swap_inference(blob: np.ndarray, latent: np.ndarray) -> np.ndarr
         return cg['io_binding'].get_outputs()[0].numpy()
 
 
-def _fast_paste_back(target_img: Frame, bgr_fake: np.ndarray, aimg: np.ndarray, M: np.ndarray) -> Frame:
+def _get_landmark_alpha(size: int, target_face: Face, M: np.ndarray) -> np.ndarray:
+    """Creates a feathered landmark-based face mask in 128x128 space.
+    
+    This ensures that the face mask perfectly fits the jawline, cheeks, and forehead,
+    leaving absolutely no straight-edge/rectangular seams or borders.
+    """
+    mask = np.zeros((size, size), dtype=np.uint8)
+
+    # Check for landmarks
+    if target_face is None or not hasattr(target_face, 'landmark_2d_106') or target_face.landmark_2d_106 is None:
+        # Fallback to square soft alpha
+        k_erode = max(size // 10, 3)
+        k_blur = max(size // 20, 3)
+        mask = np.full((size, size), 255, dtype=np.uint8)
+        mask = cv2.erode(mask, np.ones((k_erode, k_erode), np.uint8), iterations=1)
+        mask = cv2.GaussianBlur(mask, (2 * k_blur + 1, 2 * k_blur + 1), 0)
+        return mask
+
+    try:
+        # Transform landmarks from full image space to 128x128 space using affine matrix M
+        landmarks = target_face.landmark_2d_106
+        landmarks_aligned = (M[:, :2] @ landmarks.T).T + M[:, 2]
+
+        # Use standard face outline landmarks (0-32)
+        face_outline = landmarks_aligned[0:33]
+
+        # Estimate forehead points to ensure mask covers the whole face (including forehead)
+        eyebrows = landmarks_aligned[33:43]
+        if eyebrows.shape[0] > 0:
+            chin = landmarks_aligned[16]
+            eyebrow_center = np.mean(eyebrows, axis=0)
+            
+            # Vector from chin to eyebrows (upwards)
+            up_vector = eyebrow_center - chin
+            norm = np.linalg.norm(up_vector)
+            if norm > 0:
+                up_vector /= norm
+                
+                # Extend upwards by 0.9 of the chin-to-eyebrow distance (aggressive coverage)
+                # This ensures the mask covers the entire forehead for proper blending
+                forehead_offset = up_vector * (norm * 0.9)
+                
+                # Shift eyebrows up to create forehead points
+                forehead_points = eyebrows + forehead_offset
+                
+                # Expand the top points slightly outwards to cover forehead corners
+                # Calculate the center of the new top points
+                top_center = np.mean(forehead_points, axis=0)
+                
+                # Expand outwards by 15%
+                forehead_points = (forehead_points - top_center) * 1.15 + top_center
+                
+                # Combine outline and forehead points
+                face_outline = np.concatenate((face_outline, forehead_points), axis=0)
+
+        # Calculate convex hull of these points
+        hull = cv2.convexHull(face_outline.astype(np.float32))
+        
+        # Draw the filled convex hull on the mask
+        cv2.fillConvexPoly(mask, hull.astype(np.int32), 255)
+
+        # Erode and Blur the mask in 128x128 space
+        # A well-balanced erode/blur kernel for landmark mask to ensure a seamless blend
+        k_erode = max(size // 16, 5) # Erode by 8 pixels
+        k_blur = max(size // 8, 9)   # Blur by 16 pixels
+        if k_blur % 2 == 0:
+            k_blur += 1
+            
+        mask = cv2.erode(mask, np.ones((k_erode, k_erode), np.uint8), iterations=1)
+        mask = cv2.GaussianBlur(mask, (k_blur, k_blur), 0)
+
+    except Exception as e:
+        print(f"[{NAME}] Failed to create landmark mask in aligned space: {e}. Falling back to square.")
+        # Fallback to square
+        k_erode = max(size // 10, 3)
+        k_blur = max(size // 20, 3)
+        mask = np.full((size, size), 255, dtype=np.uint8)
+        mask = cv2.erode(mask, np.ones((k_erode, k_erode), np.uint8), iterations=1)
+        mask = cv2.GaussianBlur(mask, (2 * k_blur + 1, 2 * k_blur + 1), 0)
+
+    return mask
+
+
+def _fast_paste_back(target_img: Frame, bgr_fake: np.ndarray, aimg: np.ndarray, M: np.ndarray, target_face: Face = None) -> Frame:
     """Paste bgr_fake back onto target_img via the inverse affine of M.
 
     Restricts work to the face bbox in output coordinates and warps a
@@ -325,7 +408,12 @@ def _fast_paste_back(target_img: Frame, bgr_fake: np.ndarray, aimg: np.ndarray, 
     IM_crop[1, 2] -= y1p
     crop_w, crop_h = x2p - x1p, y2p - y1p
 
-    soft_alpha = _get_soft_alpha(face_h)
+    # Use landmark mask for a perfect face shape blend, fallback to square soft alpha
+    if target_face is not None:
+        soft_alpha = _get_landmark_alpha(face_h, target_face, M)
+    else:
+        soft_alpha = _get_soft_alpha(face_h)
+        
     bgr_fake_crop = cv2.warpAffine(bgr_fake, IM_crop, (crop_w, crop_h), borderMode=cv2.BORDER_REPLICATE)
     alpha_crop = cv2.warpAffine(soft_alpha, IM_crop, (crop_w, crop_h), borderValue=0)
 
@@ -398,12 +486,22 @@ def swap_face(source_face: Face, target_face: Face, temp_frame: Frame) -> Frame:
         if not isinstance(bgr_fake, np.ndarray):
             return original_frame
 
-        # Pass a dummy aimg with correct shape — _fast_paste_back only uses aimg.shape
-        # to create the white mask. Avoids redundant norm_crop2 (~0.6ms).
+        # Get face size from swapper model config
         _face_size = face_swapper.input_size[0]
         _aimg_dummy = np.empty((_face_size, _face_size, 3), dtype=np.uint8)
 
-        swapped_frame = _fast_paste_back(temp_frame, bgr_fake, _aimg_dummy, M)
+        # Apply LAB color transfer to perfectly match target skin tone and remove seams.
+        # This is critical to completely remove borders.
+        try:
+            import insightface.utils.face_align
+            aimg_target = insightface.utils.face_align.norm_crop(temp_frame, target_face.kps, image_size=_face_size)
+            bgr_fake = apply_color_transfer(bgr_fake, aimg_target)
+        except Exception as e:
+            # Fallback if alignment or color transfer fails
+            pass
+
+        # Paste back using the optimized face-landmark-based mask
+        swapped_frame = _fast_paste_back(temp_frame, bgr_fake, _aimg_dummy, M, target_face)
 
     except Exception as e:
         print(f"Error during face swap: {e}")
