@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 # single thread doubles cuda performance - needs to be set before torch import
 if any(arg.startswith('--execution-provider') for arg in sys.argv):
     os.environ['OMP_NUM_THREADS'] = '6'
@@ -40,12 +41,13 @@ if HAS_TORCH:
 def parse_args() -> None:
     signal.signal(signal.SIGINT, lambda signal_number, frame: destroy())
     program = argparse.ArgumentParser()
-    program.add_argument('-s', '--source', help='select an source image', dest='source_path')
-    program.add_argument('-t', '--target', help='select an target image or video', dest='target_path')
+    program.add_argument('-s', '--source', help='select a source image', dest='source_path')
+    program.add_argument('-t', '--target', help='select a target image or video', dest='target_path')
     program.add_argument('-o', '--output', help='select output file or directory', dest='output_path')
     program.add_argument('--frame-processor', help='pipeline of frame processors', dest='frame_processor', default=['face_swapper'], choices=['face_swapper', 'face_enhancer', 'face_enhancer_gpen256', 'face_enhancer_gpen512'], nargs='+')
     program.add_argument('--keep-fps', help='keep original fps', dest='keep_fps', action='store_true', default=False)
     program.add_argument('--keep-audio', help='keep original audio', dest='keep_audio', action='store_true', default=True)
+    program.add_argument('--no-audio', help='disable original audio', dest='keep_audio', action='store_false')
     program.add_argument('--keep-frames', help='keep temporary frames', dest='keep_frames', action='store_true', default=False)
     program.add_argument('--many-faces', help='process every face', dest='many_faces', action='store_true', default=False)
     program.add_argument('--nsfw-filter', help='filter the NSFW image or video', dest='nsfw_filter', action='store_true', default=False)
@@ -73,7 +75,7 @@ def parse_args() -> None:
     modules.globals.target_path = args.target_path
     modules.globals.output_path = normalize_output_path(modules.globals.source_path, modules.globals.target_path, args.output_path)
     modules.globals.frame_processors = args.frame_processor
-    modules.globals.headless = args.source_path or args.target_path or args.output_path
+    modules.globals.headless = bool(args.source_path or args.target_path or args.output_path)
     modules.globals.keep_fps = args.keep_fps
     modules.globals.keep_audio = args.keep_audio
     modules.globals.keep_frames = args.keep_frames
@@ -146,8 +148,6 @@ def suggest_execution_providers() -> List[str]:
 
 def suggest_execution_threads() -> int:
     """Suggest optimal thread count based on hardware and execution provider."""
-    import os
-    
     # Get CPU count
     cpu_count = os.cpu_count() or 4
     
@@ -157,9 +157,12 @@ def suggest_execution_threads() -> int:
         return 1
     if 'CUDAExecutionProvider' in modules.globals.execution_providers:
         return 2
-    
-    # For CPU execution, use most cores but leave some for system
-    return max(4, min(cpu_count - 2, 16))
+
+    # For CPU execution, use most cores but leave some for the system.
+    # Do not force at least 4 threads on low-core machines.
+    if cpu_count <= 4:
+        return max(1, cpu_count - 1)
+    return min(cpu_count - 2, 16)
 
 
 def limit_resources() -> None:
@@ -171,8 +174,6 @@ def limit_resources() -> None:
     # limit memory usage
     if modules.globals.max_memory:
         memory = modules.globals.max_memory * 1024 ** 3
-        if platform.system().lower() == 'darwin':
-            memory = modules.globals.max_memory * 1024 ** 6
         if platform.system().lower() == 'windows':
             import ctypes
             kernel32 = ctypes.windll.kernel32
@@ -191,6 +192,16 @@ def pre_check() -> bool:
     if sys.version_info < (3, 9):
         update_status('Python version is not supported - please upgrade to 3.9 or higher.')
         return False
+    if modules.globals.headless:
+        if not modules.globals.source_path:
+            update_status('Please specify --source for headless mode.')
+            return False
+        if not modules.globals.target_path:
+            update_status('Please specify --target for headless mode.')
+            return False
+        if modules.globals.output_path is None:
+            update_status('Please specify --output or allow the program to derive a default output path.')
+            return False
     if not shutil.which('ffmpeg'):
         update_status('ffmpeg is not installed.')
         return False
@@ -204,8 +215,6 @@ def update_status(message: str, scope: str = 'DLC.CORE') -> None:
 
 def start() -> None:
     """Start processing with performance monitoring."""
-    import time
-    
     start_time = time.time()
     
     for frame_processor in get_frame_processors_modules(modules.globals.frame_processors):
@@ -216,11 +225,31 @@ def start() -> None:
     # process image to image
     if has_image_extension(modules.globals.target_path):
         if modules.globals.nsfw_filter and ui.check_and_ignore_nsfw(modules.globals.target_path, destroy):
+            clean_temp(modules.globals.target_path)
             return
         try:
             shutil.copy2(modules.globals.target_path, modules.globals.output_path)
-        except Exception as e:
-            print("Error copying file:", str(e))
+        except FileNotFoundError as e:
+            update_status(
+                f'Error copying file: source file not found: {e.filename}',
+                'DLC.CORE',
+            )
+            clean_temp(modules.globals.target_path)
+            return
+        except PermissionError as e:
+            update_status(
+                f'Error copying file: permission denied: {e.filename}',
+                'DLC.CORE',
+            )
+            clean_temp(modules.globals.target_path)
+            return
+        except OSError as e:
+            update_status(
+                f'Error copying file: I/O error ({e.errno}): {e.strerror}',
+                'DLC.CORE',
+            )
+            clean_temp(modules.globals.target_path)
+            return
         for frame_processor in get_frame_processors_modules(modules.globals.frame_processors):
             update_status('Progressing...', frame_processor.NAME)
             frame_processor.process_image(modules.globals.source_path, modules.globals.output_path, modules.globals.output_path)

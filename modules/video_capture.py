@@ -70,7 +70,7 @@ class VideoCapturer:
                         if self.cap.isOpened():
                             break
                         self.cap.release()
-                    except Exception:
+                    except cv2.error:
                         continue
             else:
                 # Unix-like systems (Linux/Mac) capture method
@@ -106,7 +106,7 @@ class VideoCapturer:
             self.is_running = True
             return True
 
-        except Exception as e:
+        except (cv2.error, RuntimeError, ValueError) as e:
             print(f"Failed to start capture: {str(e)}")
             if self.cap:
                 self.cap.release()
@@ -152,7 +152,7 @@ class VideoCapturer:
             if elapsed <= 0:
                 return fallback
             return sample / elapsed
-        except Exception:
+        except (cv2.error, RuntimeError, AttributeError):
             return fallback
 
     def set_frame_callback(self, callback: Callable[[np.ndarray], None]) -> None:

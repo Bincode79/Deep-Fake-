@@ -12,6 +12,22 @@
   <img src="media/demo.gif" alt="Demo GIF" width="800">
 </p>
 
+<p align="center">
+  Documentation: <a href="docs/QUICKSTART.md">Quickstart & User Guide</a>
+</p>
+
+## Table of Contents
+
+- [Disclaimer](#disclaimer)
+- [Quick Start](#exclusive-v27-beta-quick-start---pre-built-windowsmac-siliconcpu)
+- [TLDR](#tldr-live-deepfake-in-just-3-clicks)
+- [Installation](#installation-manual)
+- [Usage](#usage)
+- [Features & Uses](#features--uses---everything-is-in-real-time)
+- [Credits](#credits)
+- [Contributions](#contributions)
+
+
 ##  Disclaimer
 
 This deepfake software is designed to be a productive tool for the AI-generated media industry. It can assist artists in animating custom characters, creating engaging content, and even using models for clothing design.
@@ -309,6 +325,18 @@ python run.py --execution-provider openvino
 - [**Download models here**](https://huggingface.co/hacksider/deep-live-cam/tree/main)
 
 ## Command Line Arguments (Unmaintained)
+
+**Example:**
+
+```bash
+python run.py --source models/source.png --target media/input.mp4 --output output.mp4
+```
+
+If `--output` is omitted, the program will automatically create a file named like:
+
+```bash
+<target-directory>/<source-name>-<target-name><target-extension>
+```
 
 ```
 options:

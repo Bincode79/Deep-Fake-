@@ -34,7 +34,7 @@ def run_ffmpeg(args: List[str]) -> bool:
         output = error.output.decode(errors="ignore").strip()
         if output:
             print(output)
-    except Exception as error:
+    except OSError as error:
         print(f"ffmpeg execution failed: {error}")
     return False
 
@@ -52,13 +52,25 @@ def detect_fps(target_path: str) -> float:
         "default=noprint_wrappers=1:nokey=1",
         target_path,
     ]
-    output = subprocess.check_output(command).decode().strip().split("/")
     try:
-        numerator, denominator = map(int, output)
-        return numerator / denominator
-    except Exception:
-        pass
-    return 30.0
+        output = subprocess.check_output(command, stderr=subprocess.STDOUT).decode().strip()
+    except (subprocess.CalledProcessError, OSError):
+        return 30.0
+
+    if not output:
+        return 30.0
+
+    parts = output.split("/", 1)
+    try:
+        if len(parts) == 2:
+            numerator = int(parts[0])
+            denominator = int(parts[1])
+            if denominator == 0:
+                return 30.0
+            return numerator / denominator
+        return float(output)
+    except (ValueError, ZeroDivisionError):
+        return 30.0
 
 
 def extract_frames(target_path: str) -> None:
@@ -229,13 +241,21 @@ def get_temp_output_path(target_path: str) -> str:
 
 
 def normalize_output_path(source_path: str, target_path: str, output_path: str) -> Any:
-    if source_path and target_path:
+    if source_path and target_path and not output_path:
         source_name, _ = os.path.splitext(os.path.basename(source_path))
         target_name, target_extension = os.path.splitext(os.path.basename(target_path))
-        if os.path.isdir(output_path):
-            return os.path.join(
-                output_path, source_name + "-" + target_name + target_extension
-            )
+        return os.path.join(
+            os.path.dirname(target_path),
+            source_name + "-" + target_name + target_extension,
+        )
+
+    if source_path and target_path and output_path and os.path.isdir(output_path):
+        source_name, _ = os.path.splitext(os.path.basename(source_path))
+        target_name, target_extension = os.path.splitext(os.path.basename(target_path))
+        return os.path.join(
+            output_path,
+            source_name + "-" + target_name + target_extension,
+        )
     return output_path
 
 
@@ -280,43 +300,60 @@ def is_video(video_path: str) -> bool:
 
 
 def conditional_download(download_directory_path: str, urls: List[str]) -> None:
-    if not os.path.exists(download_directory_path):
-        os.makedirs(download_directory_path)
+    try:
+        os.makedirs(download_directory_path, exist_ok=True)
+    except OSError as e:
+        raise RuntimeError(
+            f"Failed to create model directory {download_directory_path}: {e.strerror}"
+        ) from e
+
     for url in urls:
         download_file_path = os.path.join(
             download_directory_path, os.path.basename(url)
         )
         if not os.path.exists(download_file_path):
             request = urllib.request.Request(url)
-            
-            # Create a specific SSL context for macOS to avoid globally disabling verification
-            ctx = None
-            if platform.system().lower() == "darwin":
-                ctx = ssl._create_unverified_context()
-                
-            response = urllib.request.urlopen(request, context=ctx)
-            total = int(response.headers.get("Content-Length", 0))
-            with tqdm(
-                total=total,
-                desc="Downloading",
-                unit="B",
-                unit_scale=True,
-                unit_divisor=1024,
-            ) as progress:
-                with open(download_file_path, "wb") as f:
-                    while True:
-                        buffer = response.read(8192)
-                        if not buffer:
-                            break
-                        f.write(buffer)
-                        progress.update(len(buffer))
+
+            # Use a verified SSL context for all platforms.
+            # Avoid disabling certificate validation to prevent MITM attacks.
+            ctx = ssl.create_default_context()
+
+            try:
+                with urllib.request.urlopen(request, context=ctx) as response:
+                    total = int(response.headers.get("Content-Length", 0))
+                    with tqdm(
+                        total=total,
+                        desc="Downloading",
+                        unit="B",
+                        unit_scale=True,
+                        unit_divisor=1024,
+                    ) as progress:
+                        with open(download_file_path, "wb") as f:
+                            while True:
+                                buffer = response.read(8192)
+                                if not buffer:
+                                    break
+                                f.write(buffer)
+                                progress.update(len(buffer))
+            except urllib.error.HTTPError as e:
+                raise RuntimeError(
+                    f"Failed to download {url}: HTTP {e.code} {e.reason}"
+                ) from e
+            except urllib.error.URLError as e:
+                raise RuntimeError(
+                    f"Failed to download {url}: network error: {e.reason}"
+                ) from e
+            except OSError as e:
+                raise RuntimeError(
+                    f"Failed to save downloaded file {download_file_path}: {e.strerror}"
+                ) from e
 
 
 def resolve_relative_path(path: str) -> str:
     return os.path.abspath(os.path.join(os.path.dirname(__file__), path))
 
 
-def get_video_dimensions(target_path: str) -> tuple:
+def get_video_dimensions(target_path: str) -> tuple[int, int]:
     """Get video width and height using ffprobe."""
     command = [
         "ffprobe", "-v", "error",
@@ -325,15 +362,26 @@ def get_video_dimensions(target_path: str) -> tuple:
         "-of", "csv=p=0:s=x",
         target_path,
     ]
-    output = subprocess.check_output(command).decode().strip()
-    width, height = map(int, output.split("x"))
-    return width, height
+    try:
+        output = subprocess.check_output(command, stderr=subprocess.STDOUT).decode().strip()
+        width_str, height_str = output.split("x", 1)
+        width = int(width_str)
+        height = int(height_str)
+        return width, height
+    except (subprocess.CalledProcessError, OSError) as error:
+        raise RuntimeError(f"Failed to get video dimensions: {error}") from error
+    except (ValueError, AttributeError) as error:
+        raise RuntimeError(
+            f"Unexpected ffprobe output for video dimensions: {output!r}"
+        ) from error
 
 
 def estimate_frame_count(target_path: str, fps: float = None) -> int:
     """Estimate total frame count from video duration and fps."""
     if fps is None:
         fps = detect_fps(target_path)
+    if fps <= 0:
+        return 0
     command = [
         "ffprobe", "-v", "error",
         "-show_entries", "format=duration",
@@ -341,8 +389,10 @@ def estimate_frame_count(target_path: str, fps: float = None) -> int:
         target_path,
     ]
     try:
-        output = subprocess.check_output(command).decode().strip()
+        output = subprocess.check_output(command, stderr=subprocess.STDOUT).decode().strip()
         duration = float(output)
         return int(duration * fps)
-    except Exception:
+    except (subprocess.CalledProcessError, OSError):
+        return 0
+    except (ValueError, TypeError):
         return 0

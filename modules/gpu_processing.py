@@ -45,7 +45,7 @@ if os.environ.get("OPENCV_CUDA_PROCESSING") == "1":
         if _has_gauss and _has_resize and _has_cvt:
             CUDA_AVAILABLE = True
             print("[gpu_processing] OpenCV CUDA processing enabled via OPENCV_CUDA_PROCESSING=1.")
-    except Exception:
+    except (cv2.error, AttributeError):
         pass
 
 

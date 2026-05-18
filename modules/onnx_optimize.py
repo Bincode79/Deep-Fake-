@@ -121,7 +121,7 @@ def _fold_shape_gather(model, input_shape) -> bool:
 
     try:
         model_inferred = shape_inference.infer_shapes(model)
-    except Exception:
+    except (AttributeError, RuntimeError, TypeError, ValueError):
         return False
 
     # Extract inferred shapes

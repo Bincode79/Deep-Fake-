@@ -23,7 +23,7 @@ def _detect_torch_cuda() -> bool:
     try:
         import torch  # noqa: WPS433 — local import, avoid hard dep at module load
         return bool(torch.cuda.is_available())
-    except Exception:
+    except (ImportError, ModuleNotFoundError, AttributeError, RuntimeError):
         return False
 
 
@@ -31,7 +31,7 @@ def _detect_onnx_providers() -> List[str]:
     try:
         import onnxruntime
         return list(onnxruntime.get_available_providers())
-    except Exception:
+    except (ImportError, ModuleNotFoundError, AttributeError, RuntimeError):
         return []
 
 
