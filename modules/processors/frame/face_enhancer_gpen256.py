@@ -82,14 +82,14 @@ def enhance_face(temp_frame: Frame, face: Face) -> Frame:
         return temp_frame
 
 
-def process_frame(source_face: Face | None, temp_frame: Frame, detected_faces=None) -> Frame:
+def process_frame(source_face: Face | None, temp_frame: Frame, detected_faces=None, target_face=None) -> Frame:
     if detected_faces:
-        target_face = detected_faces[0]
+        target_face_to_use = detected_faces[0]
     else:
-        target_face = get_one_face(temp_frame)
-    if target_face is None:
+        target_face_to_use = target_face if target_face is not None else get_one_face(temp_frame)
+    if target_face_to_use is None:
         return temp_frame
-    return enhance_face(temp_frame, target_face)
+    return enhance_face(temp_frame, target_face_to_use)
 
 
 def process_frame_v2(temp_frame: Frame) -> Frame:

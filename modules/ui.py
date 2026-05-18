@@ -82,8 +82,8 @@ import json
 
 # ─── constants ────────────────────────────────────────────────────────────
 
-ROOT_HEIGHT = 820
-ROOT_WIDTH = 640
+ROOT_HEIGHT = 750
+ROOT_WIDTH = 980
 
 PREVIEW_MAX_HEIGHT = 700
 PREVIEW_MAX_WIDTH = 1200
@@ -107,106 +107,138 @@ SOURCE_TARGET_PREVIEW_SIZE = 200
 # ─── modern dark stylesheet ───────────────────────────────────────────────
 
 QSS = """
-QMainWindow, QDialog { background-color: #1e1e1e; color: #e6e6e6; }
-QWidget { color: #e6e6e6; font-family: "Segoe UI", "SF Pro Display", "Helvetica Neue", Arial, sans-serif; font-size: 11pt; }
+QMainWindow, QDialog {
+    background-color: #0f0f11;
+}
+QWidget {
+    color: #f3f3f5;
+    font-family: "Segoe UI", "SF Pro Display", "Inter", sans-serif;
+    font-size: 11pt;
+}
 
 QGroupBox {
-    background-color: #262626;
-    border: 1px solid #333333;
-    border-radius: 10px;
-    margin-top: 14px;
-    padding-top: 18px;
+    background-color: #16161a;
+    border: 1px solid #23232a;
+    border-radius: 12px;
+    margin-top: 16px;
+    padding-top: 20px;
     font-weight: 600;
+    font-size: 11.5pt;
 }
 QGroupBox::title {
     subcontrol-origin: margin;
     subcontrol-position: top left;
-    padding: 0 8px;
-    color: #9ec5ff;
+    padding: 0 12px;
+    color: #4fc3f7;
 }
 
 QPushButton {
-    background-color: #2d6cdf;
-    color: white;
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1976d2, stop:1 #0288d1);
+    color: #ffffff;
     border: none;
     border-radius: 8px;
-    padding: 8px 16px;
+    padding: 10px 20px;
     font-weight: 600;
 }
-QPushButton:hover  { background-color: #3a7af0; }
-QPushButton:pressed{ background-color: #1d57c2; }
-QPushButton:disabled { background-color: #444; color: #888; }
-QPushButton#secondary {
-    background-color: #3a3a3a;
+QPushButton:hover {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2196f3, stop:1 #03a9f4);
 }
-QPushButton#secondary:hover { background-color: #4a4a4a; }
-QPushButton#danger { background-color: #c2412d; }
-QPushButton#danger:hover  { background-color: #d8523c; }
+QPushButton:pressed {
+    background-color: #0d47a1;
+}
+QPushButton:disabled {
+    background-color: #212124;
+    color: #5d5d66;
+}
+QPushButton#secondary {
+    background-color: #26262b;
+    border: 1px solid #32323f;
+}
+QPushButton#secondary:hover {
+    background-color: #2d2d34;
+    border-color: #4fc3f7;
+}
+QPushButton#danger {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #d32f2f, stop:1 #c2185b);
+}
+QPushButton#danger:hover {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #f44336, stop:1 #e91e63);
+}
 
 QComboBox {
-    background-color: #2a2a2a;
-    border: 1px solid #404040;
-    border-radius: 6px;
-    padding: 6px 10px;
-    min-height: 24px;
+    background-color: #16161a;
+    border: 1px solid #2d2d34;
+    border-radius: 8px;
+    padding: 8px 12px;
+    min-height: 28px;
 }
-QComboBox:hover { border-color: #2d6cdf; }
+QComboBox:hover {
+    border-color: #4fc3f7;
+}
 QComboBox QAbstractItemView {
-    background-color: #2a2a2a;
-    selection-background-color: #2d6cdf;
-    border: 1px solid #404040;
+    background-color: #16161a;
+    selection-background-color: #1976d2;
+    border: 1px solid #2d2d34;
 }
 
 QCheckBox {
-    spacing: 8px;
-    padding: 4px 0;
+    spacing: 10px;
+    padding: 6px 0;
 }
 QCheckBox::indicator {
-    width: 36px; height: 18px;
-    border-radius: 9px;
-    background-color: #3a3a3a;
+    width: 40px; height: 20px;
+    border-radius: 10px;
+    background-color: #2c2c35;
 }
 QCheckBox::indicator:checked {
-    background-color: #2d6cdf;
+    background-color: #1976d2;
 }
 
 QSlider::groove:horizontal {
-    height: 6px;
-    background: #3a3a3a;
-    border-radius: 3px;
+    height: 8px;
+    background: #23232a;
+    border-radius: 4px;
 }
 QSlider::handle:horizontal {
     background: #ffffff;
-    width: 16px; height: 16px;
+    width: 18px; height: 18px;
     margin: -5px 0;
-    border-radius: 8px;
-    border: 1px solid #cccccc;
+    border-radius: 9px;
+    border: 1px solid #4fc3f7;
 }
 QSlider::sub-page:horizontal {
-    background: #2d6cdf;
-    border-radius: 3px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1976d2, stop:1 #4fc3f7);
+    border-radius: 4px;
 }
 
 QLabel#imageDrop {
-    background-color: #2a2a2a;
-    border: 2px dashed #444;
-    border-radius: 8px;
+    background-color: #121215;
+    border: 2px dashed #32323f;
+    border-radius: 10px;
 }
 QLabel#statusLabel {
-    color: #b9b9b9;
-    font-size: 10pt;
-    font-style: italic;
+    color: #e0e0e0;
+    font-size: 11pt;
+    font-weight: 500;
 }
 QLabel#linkLabel {
-    color: #6ea8ff;
-    text-decoration: underline;
+    color: #4fc3f7;
+    text-decoration: none;
+    font-weight: 600;
+}
+QLabel#linkLabel:hover {
+    color: #81d4fa;
 }
 
-QScrollArea { border: none; background: transparent; }
+QScrollArea {
+    border: none;
+    background: transparent;
+}
 
 QFrame#card {
-    background-color: #262626;
-    border-radius: 10px;
+    background-color: #16161a;
+    border: 1px solid #23232a;
+    border-radius: 12px;
 }
 """
 
@@ -224,7 +256,61 @@ _BRIDGE: Optional["_UIBridge"] = None
 
 
 def _(text: str) -> str:
-    """Translate via LanguageManager; falls back to identity."""
+    """Translate via LanguageManager; supports dynamic translation for status messages."""
+    if not text:
+        return text
+    
+    # Check if we should translate to Vietnamese
+    is_vi = _LANG is not None and getattr(_LANG, "_lang", "") == "vi"
+    
+    if is_vi:
+        # Dynamic prefix-based translations for real-time notifications
+        if text.startswith("Output image saved to:"):
+            path = text.split("Output image saved to:", 1)[1].strip()
+            return f"Đã lưu ảnh kết quả tại: {path}"
+        if text.startswith("Error: Could not read source image:"):
+            path = text.split("Error: Could not read source image:", 1)[1].strip()
+            return f"Lỗi: Không thể đọc ảnh nguồn: {path}"
+        if text.startswith("Error: No face found in source image:"):
+            path = text.split("Error: No face found in source image:", 1)[1].strip()
+            return f"Lỗi: Không tìm thấy khuôn mặt trong ảnh nguồn: {path}"
+        if text.startswith("Error reading source image file"):
+            path = text.split("Error reading source image file", 1)[1].strip()
+            return f"Lỗi khi đọc tệp ảnh nguồn {path}"
+        if "but no face was detected" in text:
+            return "Cảnh báo: Đã đọc ảnh nguồn thành công, nhưng không phát hiện khuôn mặt. Quá trình ghép mặt sẽ bị bỏ qua."
+        if text.startswith("Error during source image reading or analysis"):
+            err = text.split("Error during source image reading or analysis", 1)[1].strip()
+            return f"Lỗi khi đọc hoặc phân tích ảnh nguồn: {err}"
+        if text.startswith("Error: Could not read target image:"):
+            path = text.split("Error: Could not read target image:", 1)[1].strip()
+            return f"Lỗi: Không thể đọc ảnh đích: {path}"
+        if text.startswith("Error reading target image"):
+            err = text.split("Error reading target image", 1)[1].strip()
+            return f"Lỗi khi đọc ảnh đích {err}"
+        if text.startswith("Error: Failed to write output image to"):
+            path = text.split("Error: Failed to write output image to", 1)[1].strip()
+            return f"Lỗi: Ghi ảnh kết quả thất bại tại {path}"
+        if text == "Image processing failed (result was None).":
+            return "Xử lý ảnh thất bại (kết quả trả về rỗng)."
+        if text.startswith("Error during image processing:"):
+            err = text.split("Error during image processing:", 1)[1].strip()
+            return f"Lỗi trong quá trình xử lý ảnh: {err}"
+        if text.startswith("Processing video with"):
+            mode = text.split("Processing video with", 1)[1].strip()
+            return f"Đang xử lý video bằng chế độ {mode}"
+        if text.startswith("Transparency set to"):
+            val = text.split("Transparency set to", 1)[1].strip()
+            if "disabled" in val:
+                return "Độ hòa trộn đặt thành 0% - Đã tắt tính năng ghép mặt."
+            return f"Độ hòa trộn được đặt thành {val}"
+        if text.startswith("Sharpness set to"):
+            val = text.split("Sharpness set to", 1)[1].strip()
+            return f"Độ sắc nét được đặt thành {val}"
+        if text.startswith("Mouth Mask set to"):
+            val = text.split("Mouth Mask set to", 1)[1].strip()
+            return f"Khẩu hình (Mouth Mask) đặt thành {val}"
+
     if _LANG is None:
         return text
     return _LANG._(text)
@@ -472,91 +558,94 @@ class MainWindow(QMainWindow):
 
         root = QWidget()
         self.setCentralWidget(root)
-        layout = QVBoxLayout(root)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        
+        # Main layout is vertical to stack main content above status/footer
+        main_layout = QVBoxLayout(root)
+        main_layout.setContentsMargins(16, 16, 16, 16)
+        main_layout.setSpacing(12)
 
-        # Source/Target row
-        layout.addLayout(self._build_image_row())
+        # Dashboard body: Left and Right panels side-by-side
+        body = QHBoxLayout()
+        body.setSpacing(20)
 
-        # Options grid
-        layout.addWidget(self._build_options_card())
-
-        # Sliders card
-        layout.addWidget(self._build_sliders_card())
-
-        # Action buttons
-        layout.addLayout(self._build_action_row())
-
-        # Camera selection
-        layout.addWidget(self._build_camera_card())
-
-        # Status & footer
-        self._status_label = QLabel("")
-        self._status_label.setObjectName("statusLabel")
-        self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self._status_label)
-
-        footer = QLabel("Deep Live Cam")
-        footer.setObjectName("linkLabel")
-        footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        footer.setCursor(Qt.CursorShape.PointingHandCursor)
-        footer.mousePressEvent = lambda _e: webbrowser.open("https://deeplivecam.net")
-        layout.addWidget(footer)
-
-    # ── image row ────────────────────────────────────────────────────────
-
-    def _build_image_row(self) -> QHBoxLayout:
-        row = QHBoxLayout()
-        row.setSpacing(16)
-
-        # Source column
-        src_col = QVBoxLayout()
+        # Left panel: Media Selection (Source / Target stacked)
+        left_panel = QVBoxLayout()
+        left_panel.setSpacing(12)
+        media_card = QGroupBox(_("Media Selection"))
+        media_card.setObjectName("card")
+        media_layout = QVBoxLayout(media_card)
+        media_layout.setSpacing(12)
+        media_layout.setContentsMargins(16, 20, 16, 16)
+        
+        # Source Face Box
+        src_box = QVBoxLayout()
         self.source_label = _make_image_drop(_("Source face"), (200, 200))
-        src_col.addWidget(self.source_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        src_box.addWidget(self.source_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        
         src_row = QHBoxLayout()
         self.btn_select_source = QPushButton(_("Select a face"))
-        self.btn_select_source.setToolTip(
-            _("Choose the source face image to swap onto the target")
-        )
+        self.btn_select_source.setToolTip(_("Choose the source face image to swap onto the target"))
         self.btn_select_source.clicked.connect(self._on_select_source)
         self.btn_random_face = QPushButton("🔄")
         self.btn_random_face.setObjectName("secondary")
         self.btn_random_face.setFixedWidth(40)
-        self.btn_random_face.setToolTip(
-            _("Get a random face from thispersondoesnotexist.com")
-        )
+        self.btn_random_face.setToolTip(_("Get a random face from thispersondoesnotexist.com"))
         self.btn_random_face.clicked.connect(self._on_random_face)
         src_row.addWidget(self.btn_select_source)
         src_row.addWidget(self.btn_random_face)
-        src_col.addLayout(src_row)
+        src_box.addLayout(src_row)
+        media_layout.addLayout(src_box)
 
-        # Swap button column
-        swap_col = QVBoxLayout()
-        swap_col.addStretch(1)
+        # Swap button in between
         self.btn_swap = QPushButton("↔")
         self.btn_swap.setObjectName("secondary")
         self.btn_swap.setFixedSize(44, 44)
         self.btn_swap.setToolTip(_("Swap source and target images"))
         self.btn_swap.clicked.connect(self._on_swap_paths)
-        swap_col.addWidget(self.btn_swap, alignment=Qt.AlignmentFlag.AlignCenter)
-        swap_col.addStretch(1)
+        media_layout.addWidget(self.btn_swap, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # Target column
-        tgt_col = QVBoxLayout()
+        # Target Face Box
+        tgt_box = QVBoxLayout()
         self.target_label = _make_image_drop(_("Target"), (200, 200))
-        tgt_col.addWidget(self.target_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        tgt_box.addWidget(self.target_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        
         self.btn_select_target = QPushButton(_("Select a target"))
-        self.btn_select_target.setToolTip(
-            _("Choose the target image or video to apply face swap to")
-        )
+        self.btn_select_target.setToolTip(_("Choose the target image or video to apply face swap to"))
         self.btn_select_target.clicked.connect(self._on_select_target)
-        tgt_col.addWidget(self.btn_select_target)
+        tgt_box.addWidget(self.btn_select_target)
+        media_layout.addLayout(tgt_box)
 
-        row.addLayout(src_col)
-        row.addLayout(swap_col)
-        row.addLayout(tgt_col)
-        return row
+        left_panel.addWidget(media_card)
+        body.addLayout(left_panel, 0) # Keep left panel tight
+
+        # Right panel: Configuration and options
+        right_panel = QVBoxLayout()
+        right_panel.setSpacing(12)
+        
+        right_panel.addWidget(self._build_options_card())
+        right_panel.addWidget(self._build_sliders_card())
+        right_panel.addWidget(self._build_camera_card())
+
+        body.addLayout(right_panel, 1) # Expand right panel to fill space
+        
+        main_layout.addLayout(body)
+
+        # Bottom row with action buttons (Start, Destroy, Preview)
+        main_layout.addLayout(self._build_action_row())
+
+        # Status & footer
+        self._status_label = QLabel("")
+        self._status_label.setObjectName("statusLabel")
+        self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main_layout.addWidget(self._status_label)
+        self.set_status(_("System Ready"))
+
+        footer = QLabel("Deep Fake")
+        footer.setObjectName("linkLabel")
+        footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        footer.setCursor(Qt.CursorShape.PointingHandCursor)
+        footer.mousePressEvent = lambda _e: webbrowser.open("https://deeplivecam.net")
+        main_layout.addWidget(footer)
 
     # ── options card ─────────────────────────────────────────────────────
 
@@ -722,6 +811,72 @@ class MainWindow(QMainWindow):
 
     def set_status(self, text: str) -> None:
         self._status_label.setText(text)
+        lower_text = text.lower()
+        base_style = "border-radius: 8px; padding: 10px 16px; font-size: 11pt; font-family: \"Segoe UI\", \"SF Pro Display\", Arial, sans-serif;"
+        if "succeed" in lower_text or "success" in lower_text or "sẵn sàng" in lower_text or "completed" in lower_text or "submitted" in lower_text or "ready" in lower_text:
+            self._status_label.setStyleSheet(f"{base_style} color: #a5d6a7; background-color: #1b2e1e; border: 1px solid #2e7d32; font-weight: 600;")
+        elif "fail" in lower_text or "error" in lower_text or "required" in lower_text or "not found" in lower_text or "denied" in lower_text or "ignore" in lower_text:
+            self._status_label.setStyleSheet(f"{base_style} color: #ef9a9a; background-color: #2d1d1d; border: 1px solid #c62828; font-weight: 600;")
+        elif "processing" in lower_text or "progressing" in lower_text or "extracting" in lower_text or "creating" in lower_text or "restoring" in lower_text or "detecting" in lower_text or "downloading" in lower_text:
+            self._status_label.setStyleSheet(f"{base_style} color: #90caf9; background-color: #1a237e; border: 1px solid #1565c0; font-weight: 600;")
+        else:
+            self._status_label.setStyleSheet(f"{base_style} color: #e0e0e0; background-color: #262626; border: 1px solid #3a3a3a; font-weight: 500;")
+
+    def _update_target_preview_swapped(self) -> None:
+        if not hasattr(self, "_preview_debounce_timer"):
+            self._preview_debounce_timer = QTimer(self)
+            self._preview_debounce_timer.setSingleShot(True)
+            self._preview_debounce_timer.timeout.connect(self._do_update_target_preview_swapped)
+        self._preview_debounce_timer.start(150) # 150ms debounce to keep sliders buttery smooth
+
+    def _do_update_target_preview_swapped(self) -> None:
+        if not (modules.globals.source_path and modules.globals.target_path):
+            return
+        
+        self.set_status(_("Processing..."))
+        
+        def worker():
+            try:
+                # Get first frame of target
+                temp_frame = get_video_frame(modules.globals.target_path, 0)
+                if temp_frame is None:
+                    return
+                
+                # Check for source face
+                source_img = cv2.imread(modules.globals.source_path)
+                if source_img is None:
+                    return
+                source_face = get_one_face(source_img)
+                
+                if source_face is not None:
+                    from modules.processors.frame.core import get_frame_processors_modules as _gfpm
+                    for fp in _gfpm(modules.globals.frame_processors):
+                        fp.pre_start()
+                        temp_frame = fp.process_frame(source_face, temp_frame)
+                
+                # Rescale BGR to fit within 200x200 preview box preserving aspect ratio
+                h, w = temp_frame.shape[:2]
+                ratio = min(200 / w, 200 / h)
+                new_size = (max(1, int(w * ratio)), max(1, int(h * ratio)))
+                temp_frame = cv2.resize(temp_frame, new_size, interpolation=cv2.INTER_LANCZOS4)
+                
+                pixmap = _bgr_to_qpixmap(temp_frame)
+                
+                def update_ui():
+                    self.target_label.setPixmap(pixmap)
+                    self.target_label.setText("")
+                    self.set_status(_("Processing succeed!"))
+                    # If preview window is open, refresh it as well!
+                    if _PREVIEW is not None and _PREVIEW.isVisible():
+                        _PREVIEW.refresh_frame()
+                
+                QTimer.singleShot(0, update_ui)
+            except Exception as e:
+                def update_ui_err():
+                    self.set_status(f"Lỗi: {e}")
+                QTimer.singleShot(0, update_ui_err)
+                
+        threading.Thread(target=worker, daemon=True).start()
 
     def _on_select_source(self) -> None:
         global _RECENT_SOURCE_DIR
@@ -737,6 +892,8 @@ class MainWindow(QMainWindow):
             _RECENT_SOURCE_DIR = os.path.dirname(path)
             self.source_label.setPixmap(render_image_preview(path, (200, 200)))
             self.source_label.setText("")
+            # Trigger auto swapped face preview!
+            self._update_target_preview_swapped()
         elif not path:
             return
         else:
@@ -760,6 +917,8 @@ class MainWindow(QMainWindow):
             _RECENT_TARGET_DIR = os.path.dirname(path)
             self.target_label.setPixmap(render_image_preview(path, (200, 200)))
             self.target_label.setText("")
+            # Trigger auto swapped face preview!
+            self._update_target_preview_swapped()
         elif is_video(path):
             modules.globals.target_path = path
             _RECENT_TARGET_DIR = os.path.dirname(path)
@@ -767,6 +926,8 @@ class MainWindow(QMainWindow):
             if pm:
                 self.target_label.setPixmap(pm)
                 self.target_label.setText("")
+            # Trigger auto swapped face preview!
+            self._update_target_preview_swapped()
         else:
             modules.globals.target_path = None
             self.target_label.clear()
@@ -788,6 +949,7 @@ class MainWindow(QMainWindow):
             modules.globals.source_path = temp_path
             self.source_label.setPixmap(render_image_preview(temp_path, (200, 200)))
             self.source_label.setText("")
+            self._update_target_preview_swapped()
         except Exception as exc:
             print(f"Failed to fetch random face: {exc}")
 
@@ -803,9 +965,9 @@ class MainWindow(QMainWindow):
         if _PREVIEW is not None:
             _PREVIEW.hide()
         self.source_label.setPixmap(render_image_preview(tp, (200, 200)))
-        self.target_label.setPixmap(render_image_preview(sp, (200, 200)))
         self.source_label.setText("")
-        self.target_label.setText("")
+        # Trigger swapped preview update
+        self._update_target_preview_swapped()
 
     def _on_map_faces_toggled(self, value: bool) -> None:
         modules.globals.map_faces = value
@@ -826,6 +988,7 @@ class MainWindow(QMainWindow):
         if selected:
             _update_tumbler(selected, True)
         save_switch_states()
+        self._update_target_preview_swapped()
 
     def _on_transparency_change(self, value: float) -> None:
         modules.globals.opacity = value
@@ -839,16 +1002,19 @@ class MainWindow(QMainWindow):
         else:
             modules.globals.face_swapper_enabled = True
             update_status(f"Transparency set to {pct}%")
+        self._update_target_preview_swapped()
 
     def _on_sharpness_change(self, value: float) -> None:
         modules.globals.sharpness = value
         update_status(f"Sharpness set to {value:.1f}")
+        self._update_target_preview_swapped()
 
     def _on_mouth_mask_change(self, value: float) -> None:
         modules.globals.mouth_mask_size = value
         modules.globals.mouth_mask = value > 0
         if value <= 0:
             modules.globals.show_mouth_mask_box = False
+        self._update_target_preview_swapped()
 
     def _on_mouth_mask_pressed(self) -> None:
         if modules.globals.mouth_mask_size > 0:

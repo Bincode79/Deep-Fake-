@@ -70,6 +70,12 @@ enable_interpolation: bool = True # Toggle temporal smoothing
 interpolation_weight: float = 0  # Blend weight for current frame (0.0-1.0). Lower=smoother.
 # --- END: Added for Frame Interpolation ---
 
+# --- START: Added for Color Matching and Face Area Scaling ---
+color_correction_strength: float = 0.5 # Color matching slider value (0.0 - 1.0)
+face_area_scale: float = 0.7           # Face area swap coverage (0.5 - 1.0)
+gpu_acceleration: bool = True          # GPU Acceleration toggle
+# --- END: Added for Color Matching and Face Area Scaling ---
+
 # --- END OF FILE globals.py ---
 
 import threading

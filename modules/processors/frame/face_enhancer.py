@@ -384,8 +384,10 @@ def enhance_face(temp_frame: Frame, detected_faces=None) -> Frame:
 
 
 def process_frame(source_face: Face | None, temp_frame: Frame,
-                   detected_faces=None) -> Frame:
+                   detected_faces=None, target_face=None) -> Frame:
     """Processes a frame: enhances face if detected."""
+    if target_face is not None and detected_faces is None:
+        detected_faces = [target_face]
     return enhance_face(temp_frame, detected_faces=detected_faces)
 
 

@@ -55,33 +55,45 @@ def build_provider_config(providers=None):
     return config
 
 
+# Session-level IO binding cache to avoid recreation overhead per-frame
+_io_binding_cache = {}
+
 def run_inference(session: onnxruntime.InferenceSession,
                   input_name: str,
                   input_tensor: "np.ndarray") -> "np.ndarray":
-    """Run ONNX inference, using IO binding when a CUDA session is active.
+    """Run ONNX inference, using cached IO binding when a CUDA session is active.
 
     IO binding avoids redundant host↔device copies by transferring the
     input tensor directly to GPU memory and letting ONNX Runtime allocate
-    the output on the device.  Falls back to the standard ``session.run``
+    the output on the device. Falls back to the standard ``session.run``
     path for non-CUDA providers or if binding fails.
     """
     if "CUDAExecutionProvider" in session.get_providers():
         try:
-            io_binding = session.io_binding()
-
-            # Input: numpy → GPU
-            ort_input = onnxruntime.OrtValue.ortvalue_from_numpy(
-                input_tensor, "cuda", 0,
-            )
-            io_binding.bind_ortvalue_input(input_name, ort_input)
-
-            # Output: allocate on GPU (avoids a CPU-side allocation)
-            output_name = session.get_outputs()[0].name
-            io_binding.bind_output(output_name, "cuda", 0)
-
-            session.run_with_iobinding(io_binding)
-
-            return io_binding.get_outputs()[0].numpy()
+            session_id = id(session)
+            if session_id not in _io_binding_cache:
+                io_binding = session.io_binding()
+                
+                # Pre-allocate input OrtValue
+                dummy_inp = np.zeros(input_tensor.shape, dtype=input_tensor.dtype)
+                ort_input = onnxruntime.OrtValue.ortvalue_from_numpy(dummy_inp, "cuda", 0)
+                io_binding.bind_ortvalue_input(input_name, ort_input)
+                
+                # Bind output
+                output_name = session.get_outputs()[0].name
+                io_binding.bind_output(output_name, "cuda", 0)
+                
+                _io_binding_cache[session_id] = {
+                    'io_binding': io_binding,
+                    'ort_input': ort_input,
+                }
+            
+            cache = _io_binding_cache[session_id]
+            cache['ort_input'].update_inplace(input_tensor)
+            
+            session.run_with_iobinding(cache['io_binding'])
+            
+            return cache['io_binding'].get_outputs()[0].numpy()
         except Exception:
             # Fall back to standard path (e.g. ORT version mismatch,
             # unsupported op, or VRAM pressure)

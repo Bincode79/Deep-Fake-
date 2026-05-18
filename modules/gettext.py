@@ -24,3 +24,7 @@ class LanguageManager:
     def _(self, key, default=None) -> str:
         """get translate text"""
         return self.translations.get(key, default if default else key)
+
+    # Backwards-compatible alias used by tests and callers
+    def get(self, key, default=None) -> str:
+        return self._(key, default)

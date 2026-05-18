@@ -350,13 +350,41 @@ def _get_landmark_alpha(size: int, target_face: Face, M: np.ndarray) -> np.ndarr
 
         # Erode and Blur the mask in 128x128 space
         # A well-balanced erode/blur kernel for landmark mask to ensure a seamless blend
-        k_erode = max(size // 16, 5) # Erode by 8 pixels
-        k_blur = max(size // 8, 9)   # Blur by 16 pixels
+        k_erode = max(size // 12, 6) # Erode slightly more aggressively to pull mask away from borders
+        k_blur = max(size // 6, 15)  # Blur with a larger kernel for extremely smooth transition
         if k_blur % 2 == 0:
             k_blur += 1
             
         mask = cv2.erode(mask, np.ones((k_erode, k_erode), np.uint8), iterations=1)
         mask = cv2.GaussianBlur(mask, (k_blur, k_blur), 0)
+
+        # Apply a smooth boundary falloff to guarantee that the mask is 0 at the outer edges
+        # This completely eliminates rectangular borders or straight-line seam artifacts
+        margin = max(size // 16, 8)
+        falloff = np.ones((size, size), dtype=np.float32)
+        for i in range(margin):
+            val = np.sin((i / margin) * (np.pi / 2)) # Smooth sinus ramp
+            falloff[i, :] *= val
+            falloff[size - 1 - i, :] *= val
+            falloff[:, i] *= val
+            falloff[:, size - 1 - i] *= val
+
+        mask = (mask.astype(np.float32) * falloff).astype(np.uint8)
+
+        # Dynamically find the eyebrow level in aligned space and fade the top forehead area
+        # to prevent any source hair or boundary lines from leaking onto the target forehead
+        min_eyebrow_y = np.min(landmarks_aligned[33:43, 1])
+        top_fade_start = int(min_eyebrow_y - 2) # Just above eyebrows
+        top_fade_end = int(max(6, min_eyebrow_y - 18)) # Higher up on the forehead, pull down mask slightly
+        
+        for y in range(size):
+            if y < top_fade_start:
+                if y <= top_fade_end:
+                    factor = 0.0
+                else:
+                    factor = (y - top_fade_end) / (top_fade_start - top_fade_end)
+                    factor = np.sin(factor * (np.pi / 2)) # Smooth sinus transition
+                mask[y, :] = (mask[y, :].astype(np.float32) * factor).astype(np.uint8)
 
     except Exception as e:
         print(f"[{NAME}] Failed to create landmark mask in aligned space: {e}. Falling back to square.")
@@ -496,8 +524,13 @@ def swap_face(source_face: Face, target_face: Face, temp_frame: Frame) -> Frame:
             import insightface.utils.face_align
             aimg_target = insightface.utils.face_align.norm_crop(temp_frame, target_face.kps, image_size=_face_size)
             bgr_fake = apply_color_transfer(bgr_fake, aimg_target)
+            
+            # Apply a high-end beauty bilateral filter to smooth skin splotches while keeping features sharp
+            # Blend 65% smooth skin and 35% original to keep extremely natural skin pores/textures
+            smoothed_fake = cv2.bilateralFilter(bgr_fake, d=5, sigmaColor=12, sigmaSpace=12)
+            bgr_fake = cv2.addWeighted(smoothed_fake, 0.65, bgr_fake, 0.35, 0)
         except Exception as e:
-            # Fallback if alignment or color transfer fails
+            # Fallback if alignment, color transfer, or skin smoothing fails
             pass
 
         # Paste back using the optimized face-landmark-based mask
@@ -1431,7 +1464,7 @@ def create_face_mask(face: Face, frame: Frame) -> np.ndarray:
     return mask # Return uint8 mask
 
 
-def apply_color_transfer(source, target):
+def apply_color_transfer(source, target, strength=0.90):
     """
     Apply color transfer using LAB color space. Handles potential division by zero and ensures output is uint8.
     """
@@ -1487,7 +1520,10 @@ def apply_color_transfer(source, target):
         # target_std = np.maximum(target_std, epsilon) # Target std can be small
 
         # Perform color transfer in LAB space
-        result_lab = (source_lab - source_mean) * (target_std / source_std) + target_mean
+        transferred_lab = (source_lab - source_mean) * (target_std / source_std) + target_mean
+
+        # Blend transferred color with original source color based on strength
+        result_lab = source_lab * (1.0 - strength) + transferred_lab * strength
 
         # --- No explicit clipping needed in LAB space typically ---
         # Clipping is handled implicitly by the conversion back to BGR and then to uint8
