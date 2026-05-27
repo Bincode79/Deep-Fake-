@@ -31,7 +31,7 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtGui import QImage, QPixmap, QShortcut, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -51,16 +51,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import modules.core
 import modules.globals
 import modules.metadata
-from modules.capturer import get_video_frame, get_video_frame_total
 from modules.face_analyser import (
     add_blank_map,
-    detect_many_faces_fast,
     detect_one_face_fast,
+    ensure_landmarks,
     get_one_face,
-    get_unique_faces_from_target_image,
-    get_unique_faces_from_target_video,
     has_valid_map,
     simplify_maps,
 )
@@ -70,7 +68,6 @@ from modules.processors.frame.core import get_frame_processors_modules
 from modules.utilities import (
     has_image_extension,
     is_image,
-    is_video,
 )
 from modules.video_capture import VideoCapturer
 
@@ -82,18 +79,11 @@ import json
 
 # ─── constants ────────────────────────────────────────────────────────────
 
-ROOT_HEIGHT = 750
-ROOT_WIDTH = 980
+ROOT_HEIGHT = 960
+ROOT_WIDTH = 640
 
-PREVIEW_MAX_HEIGHT = 700
-PREVIEW_MAX_WIDTH = 1200
 PREVIEW_DEFAULT_WIDTH = 640
 PREVIEW_DEFAULT_HEIGHT = 360
-
-POPUP_WIDTH = 750
-POPUP_HEIGHT = 810
-POPUP_SCROLL_WIDTH = 720
-POPUP_SCROLL_HEIGHT = 700
 
 POPUP_LIVE_WIDTH = 900
 POPUP_LIVE_HEIGHT = 820
@@ -101,144 +91,223 @@ POPUP_LIVE_SCROLL_WIDTH = 870
 POPUP_LIVE_SCROLL_HEIGHT = 700
 
 MAPPER_PREVIEW_SIZE = 100
-SOURCE_TARGET_PREVIEW_SIZE = 200
+
+
+# ─── light theme stylesheet ──────────────────────────────────────────────
+
+LIGHT_QSS = """
+QMainWindow, QDialog { background-color: #f5f5f5; color: #1e1e1e; }
+QWidget { color: #1e1e1e; font-family: "Segoe UI", "SF Pro Display", "Helvetica Neue", Arial, sans-serif; font-size: 11pt; }
+
+QGroupBox {
+    background-color: #ffffff;
+    border: 1px solid #d0d0d0;
+    border-radius: 10px;
+    margin-top: 14px;
+    padding-top: 18px;
+    font-weight: 600;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 8px;
+    color: #1a5bbf;
+}
+
+QPushButton {
+    background-color: #2d6cdf;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-weight: 600;
+}
+QPushButton:hover  { background-color: #3a7af0; }
+QPushButton:pressed{ background-color: #1d57c2; }
+QPushButton:disabled { background-color: #cccccc; color: #888888; }
+QPushButton#secondary {
+    background-color: #e0e0e0;
+    color: #1e1e1e;
+}
+QPushButton#secondary:hover { background-color: #d0d0d0; }
+QPushButton#danger { background-color: #c2412d; }
+QPushButton#danger:hover  { background-color: #d8523c; }
+
+QComboBox {
+    background-color: #ffffff;
+    border: 1px solid #c0c0c0;
+    border-radius: 6px;
+    padding: 6px 10px;
+    min-height: 24px;
+    color: #1e1e1e;
+}
+QComboBox:hover { border-color: #2d6cdf; }
+QComboBox QAbstractItemView {
+    background-color: #ffffff;
+    selection-background-color: #2d6cdf;
+    selection-color: white;
+    border: 1px solid #c0c0c0;
+}
+
+QCheckBox {
+    spacing: 8px;
+    padding: 4px 0;
+    color: #1e1e1e;
+}
+QCheckBox::indicator {
+    width: 36px; height: 18px;
+    border-radius: 9px;
+    background-color: #c0c0c0;
+}
+QCheckBox::indicator:checked {
+    background-color: #2d6cdf;
+}
+
+QSlider::groove:horizontal {
+    height: 6px;
+    background: #d0d0d0;
+    border-radius: 3px;
+}
+QSlider::handle:horizontal {
+    background: #ffffff;
+    width: 16px; height: 16px;
+    margin: -5px 0;
+    border-radius: 8px;
+    border: 1px solid #888888;
+}
+QSlider::sub-page:horizontal {
+    background: #2d6cdf;
+    border-radius: 3px;
+}
+
+QLabel#imageDrop {
+    background-color: #fafafa;
+    border: 2px dashed #bbbbbb;
+    border-radius: 8px;
+    color: #666666;
+}
+QLabel#statusLabel {
+    color: #666666;
+    font-size: 10pt;
+    font-style: italic;
+}
+QLabel#linkLabel {
+    color: #1a5bbf;
+    text-decoration: underline;
+}
+
+QScrollArea { border: none; background: transparent; }
+
+QFrame#card {
+    background-color: #ffffff;
+    border-radius: 10px;
+}
+"""
 
 
 # ─── modern dark stylesheet ───────────────────────────────────────────────
 
 QSS = """
-QMainWindow, QDialog {
-    background-color: #0f0f11;
-}
-QWidget {
-    color: #f3f3f5;
-    font-family: "Segoe UI", "SF Pro Display", "Inter", sans-serif;
-    font-size: 11pt;
-}
+QMainWindow, QDialog { background-color: #1e1e1e; color: #e6e6e6; }
+QWidget { color: #e6e6e6; font-family: "Segoe UI", "SF Pro Display", "Helvetica Neue", Arial, sans-serif; font-size: 11pt; }
 
 QGroupBox {
-    background-color: #16161a;
-    border: 1px solid #23232a;
-    border-radius: 12px;
-    margin-top: 16px;
-    padding-top: 20px;
+    background-color: #262626;
+    border: 1px solid #333333;
+    border-radius: 10px;
+    margin-top: 14px;
+    padding-top: 18px;
     font-weight: 600;
-    font-size: 11.5pt;
 }
 QGroupBox::title {
     subcontrol-origin: margin;
     subcontrol-position: top left;
-    padding: 0 12px;
-    color: #4fc3f7;
+    padding: 0 8px;
+    color: #9ec5ff;
 }
 
 QPushButton {
-    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1976d2, stop:1 #0288d1);
-    color: #ffffff;
+    background-color: #2d6cdf;
+    color: white;
     border: none;
     border-radius: 8px;
-    padding: 10px 20px;
+    padding: 8px 16px;
     font-weight: 600;
 }
-QPushButton:hover {
-    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2196f3, stop:1 #03a9f4);
-}
-QPushButton:pressed {
-    background-color: #0d47a1;
-}
-QPushButton:disabled {
-    background-color: #212124;
-    color: #5d5d66;
-}
+QPushButton:hover  { background-color: #3a7af0; }
+QPushButton:pressed{ background-color: #1d57c2; }
+QPushButton:disabled { background-color: #444; color: #888; }
 QPushButton#secondary {
-    background-color: #26262b;
-    border: 1px solid #32323f;
+    background-color: #3a3a3a;
 }
-QPushButton#secondary:hover {
-    background-color: #2d2d34;
-    border-color: #4fc3f7;
-}
-QPushButton#danger {
-    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #d32f2f, stop:1 #c2185b);
-}
-QPushButton#danger:hover {
-    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #f44336, stop:1 #e91e63);
-}
+QPushButton#secondary:hover { background-color: #4a4a4a; }
+QPushButton#danger { background-color: #c2412d; }
+QPushButton#danger:hover  { background-color: #d8523c; }
 
 QComboBox {
-    background-color: #16161a;
-    border: 1px solid #2d2d34;
-    border-radius: 8px;
-    padding: 8px 12px;
-    min-height: 28px;
+    background-color: #2a2a2a;
+    border: 1px solid #404040;
+    border-radius: 6px;
+    padding: 6px 10px;
+    min-height: 24px;
 }
-QComboBox:hover {
-    border-color: #4fc3f7;
-}
+QComboBox:hover { border-color: #2d6cdf; }
 QComboBox QAbstractItemView {
-    background-color: #16161a;
-    selection-background-color: #1976d2;
-    border: 1px solid #2d2d34;
+    background-color: #2a2a2a;
+    selection-background-color: #2d6cdf;
+    border: 1px solid #404040;
 }
 
 QCheckBox {
-    spacing: 10px;
-    padding: 6px 0;
+    spacing: 8px;
+    padding: 4px 0;
 }
 QCheckBox::indicator {
-    width: 40px; height: 20px;
-    border-radius: 10px;
-    background-color: #2c2c35;
+    width: 36px; height: 18px;
+    border-radius: 9px;
+    background-color: #3a3a3a;
 }
 QCheckBox::indicator:checked {
-    background-color: #1976d2;
+    background-color: #2d6cdf;
 }
 
 QSlider::groove:horizontal {
-    height: 8px;
-    background: #23232a;
-    border-radius: 4px;
+    height: 6px;
+    background: #3a3a3a;
+    border-radius: 3px;
 }
 QSlider::handle:horizontal {
     background: #ffffff;
-    width: 18px; height: 18px;
+    width: 16px; height: 16px;
     margin: -5px 0;
-    border-radius: 9px;
-    border: 1px solid #4fc3f7;
+    border-radius: 8px;
+    border: 1px solid #cccccc;
 }
 QSlider::sub-page:horizontal {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1976d2, stop:1 #4fc3f7);
-    border-radius: 4px;
+    background: #2d6cdf;
+    border-radius: 3px;
 }
 
 QLabel#imageDrop {
-    background-color: #121215;
-    border: 2px dashed #32323f;
-    border-radius: 10px;
+    background-color: #2a2a2a;
+    border: 2px dashed #444;
+    border-radius: 8px;
 }
 QLabel#statusLabel {
-    color: #e0e0e0;
-    font-size: 11pt;
-    font-weight: 500;
+    color: #b9b9b9;
+    font-size: 10pt;
+    font-style: italic;
 }
 QLabel#linkLabel {
-    color: #4fc3f7;
-    text-decoration: none;
-    font-weight: 600;
-}
-QLabel#linkLabel:hover {
-    color: #81d4fa;
+    color: #6ea8ff;
+    text-decoration: underline;
 }
 
-QScrollArea {
-    border: none;
-    background: transparent;
-}
+QScrollArea { border: none; background: transparent; }
 
 QFrame#card {
-    background-color: #16161a;
-    border: 1px solid #23232a;
-    border-radius: 12px;
+    background-color: #262626;
+    border-radius: 10px;
 }
 """
 
@@ -247,70 +316,14 @@ QFrame#card {
 
 _APP: Optional[QApplication] = None
 _MAIN: Optional["MainWindow"] = None
-_PREVIEW: Optional["PreviewWindow"] = None
 _WEBCAM_PREVIEW: Optional["WebcamPreviewWindow"] = None
-_MAPPER: Optional["MapperDialog"] = None
 _LIVE_MAPPER: Optional["LiveMapperDialog"] = None
 _LANG: Optional[LanguageManager] = None
 _BRIDGE: Optional["_UIBridge"] = None
 
 
 def _(text: str) -> str:
-    """Translate via LanguageManager; supports dynamic translation for status messages."""
-    if not text:
-        return text
-    
-    # Check if we should translate to Vietnamese
-    is_vi = _LANG is not None and getattr(_LANG, "_lang", "") == "vi"
-    
-    if is_vi:
-        # Dynamic prefix-based translations for real-time notifications
-        if text.startswith("Output image saved to:"):
-            path = text.split("Output image saved to:", 1)[1].strip()
-            return f"Đã lưu ảnh kết quả tại: {path}"
-        if text.startswith("Error: Could not read source image:"):
-            path = text.split("Error: Could not read source image:", 1)[1].strip()
-            return f"Lỗi: Không thể đọc ảnh nguồn: {path}"
-        if text.startswith("Error: No face found in source image:"):
-            path = text.split("Error: No face found in source image:", 1)[1].strip()
-            return f"Lỗi: Không tìm thấy khuôn mặt trong ảnh nguồn: {path}"
-        if text.startswith("Error reading source image file"):
-            path = text.split("Error reading source image file", 1)[1].strip()
-            return f"Lỗi khi đọc tệp ảnh nguồn {path}"
-        if "but no face was detected" in text:
-            return "Cảnh báo: Đã đọc ảnh nguồn thành công, nhưng không phát hiện khuôn mặt. Quá trình ghép mặt sẽ bị bỏ qua."
-        if text.startswith("Error during source image reading or analysis"):
-            err = text.split("Error during source image reading or analysis", 1)[1].strip()
-            return f"Lỗi khi đọc hoặc phân tích ảnh nguồn: {err}"
-        if text.startswith("Error: Could not read target image:"):
-            path = text.split("Error: Could not read target image:", 1)[1].strip()
-            return f"Lỗi: Không thể đọc ảnh đích: {path}"
-        if text.startswith("Error reading target image"):
-            err = text.split("Error reading target image", 1)[1].strip()
-            return f"Lỗi khi đọc ảnh đích {err}"
-        if text.startswith("Error: Failed to write output image to"):
-            path = text.split("Error: Failed to write output image to", 1)[1].strip()
-            return f"Lỗi: Ghi ảnh kết quả thất bại tại {path}"
-        if text == "Image processing failed (result was None).":
-            return "Xử lý ảnh thất bại (kết quả trả về rỗng)."
-        if text.startswith("Error during image processing:"):
-            err = text.split("Error during image processing:", 1)[1].strip()
-            return f"Lỗi trong quá trình xử lý ảnh: {err}"
-        if text.startswith("Processing video with"):
-            mode = text.split("Processing video with", 1)[1].strip()
-            return f"Đang xử lý video bằng chế độ {mode}"
-        if text.startswith("Transparency set to"):
-            val = text.split("Transparency set to", 1)[1].strip()
-            if "disabled" in val:
-                return "Độ hòa trộn đặt thành 0% - Đã tắt tính năng ghép mặt."
-            return f"Độ hòa trộn được đặt thành {val}"
-        if text.startswith("Sharpness set to"):
-            val = text.split("Sharpness set to", 1)[1].strip()
-            return f"Độ sắc nét được đặt thành {val}"
-        if text.startswith("Mouth Mask set to"):
-            val = text.split("Mouth Mask set to", 1)[1].strip()
-            return f"Khẩu hình (Mouth Mask) đặt thành {val}"
-
+    """Translate via LanguageManager; falls back to identity."""
     if _LANG is None:
         return text
     return _LANG._(text)
@@ -318,8 +331,6 @@ def _(text: str) -> str:
 
 # Preserve original cwd state for file dialogs.
 _RECENT_SOURCE_DIR: Optional[str] = None
-_RECENT_TARGET_DIR: Optional[str] = None
-_RECENT_OUTPUT_DIR: Optional[str] = None
 
 
 # ─── image utilities ─────────────────────────────────────────────────────
@@ -386,7 +397,7 @@ def save_switch_states():
         "keep_fps": modules.globals.keep_fps,
         "keep_audio": modules.globals.keep_audio,
         "keep_frames": modules.globals.keep_frames,
-        "many_faces": modules.globals.many_faces,
+        "keep_fps": modules.globals.keep_fps,
         "map_faces": modules.globals.map_faces,
         "poisson_blend": modules.globals.poisson_blend,
         "color_correction": modules.globals.color_correction,
@@ -395,9 +406,7 @@ def save_switch_states():
         "live_resizable": modules.globals.live_resizable,
         "fp_ui": modules.globals.fp_ui,
         "show_fps": modules.globals.show_fps,
-        "mouth_mask": modules.globals.mouth_mask,
-        "show_mouth_mask_box": modules.globals.show_mouth_mask_box,
-        "mouth_mask_size": modules.globals.mouth_mask_size,
+        "theme": modules.globals.theme,
     }
     try:
         with open("switch_states.json", "w") as f:
@@ -413,7 +422,6 @@ def load_switch_states():
         modules.globals.keep_fps = state.get("keep_fps", True)
         modules.globals.keep_audio = state.get("keep_audio", True)
         modules.globals.keep_frames = state.get("keep_frames", False)
-        modules.globals.many_faces = state.get("many_faces", False)
         modules.globals.map_faces = state.get("map_faces", False)
         modules.globals.poisson_blend = state.get("poisson_blend", False)
         modules.globals.color_correction = state.get("color_correction", False)
@@ -422,13 +430,20 @@ def load_switch_states():
         modules.globals.live_resizable = state.get("live_resizable", False)
         modules.globals.fp_ui = state.get("fp_ui", {"face_enhancer": False})
         modules.globals.show_fps = state.get("show_fps", False)
-        modules.globals.mouth_mask_size = state.get("mouth_mask_size", 0.0)
-        modules.globals.mouth_mask = modules.globals.mouth_mask_size > 0
-        modules.globals.show_mouth_mask_box = False
+        modules.globals.theme = state.get("theme", "dark")
     except FileNotFoundError:
         pass
     except (OSError, json.JSONDecodeError):
         pass
+
+
+def apply_theme():
+    """Apply the current theme (dark/light) to the application."""
+    if _APP is None:
+        return
+    qss = LIGHT_QSS if modules.globals.theme == "light" else QSS
+    _APP.setStyleSheet(qss)
+    save_switch_states()
 
 
 # ─── thread-safe status bridge ───────────────────────────────────────────
@@ -448,6 +463,24 @@ def _emit_status(text: str) -> None:
 
 
 # ─── public API ──────────────────────────────────────────────────────────
+
+
+def detect_first_face_from_target(target_path: str):
+    """Auto-detect the first face from target image/video when no source is selected."""
+    from modules.face_analyser import get_one_face
+    import cv2
+    ext = os.path.splitext(target_path)[1].lower()
+    if ext in ('.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'):
+        frame = cv2.imread(target_path)
+        if frame is not None:
+            return get_one_face(frame)
+    elif ext in ('.mp4', '.avi', '.mov', '.mkv', '.webm'):
+        cap = cv2.VideoCapture(target_path)
+        ret, frame = cap.read()
+        cap.release()
+        if ret and frame is not None:
+            return get_one_face(frame)
+    return None
 
 
 def update_status(text: str) -> None:
@@ -544,11 +577,20 @@ class _Switch(QWidget):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, start_cb: Callable, destroy_cb: Callable):
+    def __init__(self, destroy_cb: Callable):
         super().__init__()
         load_switch_states()
-        self._start_cb = start_cb
         self._destroy_cb = destroy_cb
+
+        # Live preview state
+        self._cap = None
+        self._capture_queue: Optional[queue.Queue] = None
+        self._processed_queue: Optional[queue.Queue] = None
+        self._stop_event: Optional[threading.Event] = None
+        self._capture_worker: Optional[QThread] = None
+        self._processing_worker: Optional[QThread] = None
+        self._preview_timer: Optional[QTimer] = None
+        self._saved_source_pixmap: Optional[QPixmap] = None
 
         self.setWindowTitle(
             f"{modules.metadata.name} {modules.metadata.version} {modules.metadata.edition}"
@@ -558,99 +600,98 @@ class MainWindow(QMainWindow):
 
         root = QWidget()
         self.setCentralWidget(root)
-        
-        # Main layout is vertical to stack main content above status/footer
-        main_layout = QVBoxLayout(root)
-        main_layout.setContentsMargins(16, 16, 16, 16)
-        main_layout.setSpacing(12)
+        layout = QVBoxLayout(root)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
 
-        # Dashboard body: Left and Right panels side-by-side
-        body = QHBoxLayout()
-        body.setSpacing(20)
+        # Source face + live preview
+        layout.addLayout(self._build_image_row())
 
-        # Left panel: Media Selection (Source / Target stacked)
-        left_panel = QVBoxLayout()
-        left_panel.setSpacing(12)
-        media_card = QGroupBox(_("Media Selection"))
-        media_card.setObjectName("card")
-        media_layout = QVBoxLayout(media_card)
-        media_layout.setSpacing(12)
-        media_layout.setContentsMargins(16, 20, 16, 16)
-        
-        # Source Face Box
-        src_box = QVBoxLayout()
-        self.source_label = _make_image_drop(_("Source face"), (200, 200))
-        src_box.addWidget(self.source_label, alignment=Qt.AlignmentFlag.AlignCenter)
-        
-        src_row = QHBoxLayout()
-        self.btn_select_source = QPushButton(_("Select a face"))
-        self.btn_select_source.setToolTip(_("Choose the source face image to swap onto the target"))
-        self.btn_select_source.clicked.connect(self._on_select_source)
-        self.btn_random_face = QPushButton("🔄")
-        self.btn_random_face.setObjectName("secondary")
-        self.btn_random_face.setFixedWidth(40)
-        self.btn_random_face.setToolTip(_("Get a random face from thispersondoesnotexist.com"))
-        self.btn_random_face.clicked.connect(self._on_random_face)
-        src_row.addWidget(self.btn_select_source)
-        src_row.addWidget(self.btn_random_face)
-        src_box.addLayout(src_row)
-        media_layout.addLayout(src_box)
+        # Progress table (replaces old Target card)
+        layout.addWidget(self._build_progress_table())
 
-        # Swap button in between
-        self.btn_swap = QPushButton("↔")
-        self.btn_swap.setObjectName("secondary")
-        self.btn_swap.setFixedSize(44, 44)
-        self.btn_swap.setToolTip(_("Swap source and target images"))
-        self.btn_swap.clicked.connect(self._on_swap_paths)
-        media_layout.addWidget(self.btn_swap, alignment=Qt.AlignmentFlag.AlignCenter)
+        # Options grid
+        layout.addWidget(self._build_options_card())
 
-        # Target Face Box
-        tgt_box = QVBoxLayout()
-        self.target_label = _make_image_drop(_("Target"), (200, 200))
-        tgt_box.addWidget(self.target_label, alignment=Qt.AlignmentFlag.AlignCenter)
-        
-        self.btn_select_target = QPushButton(_("Select a target"))
-        self.btn_select_target.setToolTip(_("Choose the target image or video to apply face swap to"))
-        self.btn_select_target.clicked.connect(self._on_select_target)
-        tgt_box.addWidget(self.btn_select_target)
-        media_layout.addLayout(tgt_box)
+        # Sliders card
+        layout.addWidget(self._build_sliders_card())
 
-        left_panel.addWidget(media_card)
-        body.addLayout(left_panel, 0) # Keep left panel tight
+        # Action buttons
+        layout.addLayout(self._build_action_row())
 
-        # Right panel: Configuration and options
-        right_panel = QVBoxLayout()
-        right_panel.setSpacing(12)
-        
-        right_panel.addWidget(self._build_options_card())
-        right_panel.addWidget(self._build_sliders_card())
-        right_panel.addWidget(self._build_camera_card())
-
-        body.addLayout(right_panel, 1) # Expand right panel to fill space
-        
-        main_layout.addLayout(body)
-
-        # Bottom row with action buttons (Start, Destroy, Preview)
-        main_layout.addLayout(self._build_action_row())
+        # Camera selection
+        layout.addWidget(self._build_camera_card())
 
         # Status & footer
         self._status_label = QLabel("")
         self._status_label.setObjectName("statusLabel")
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(self._status_label)
-        self.set_status(_("System Ready"))
+        layout.addWidget(self._status_label)
 
-        footer = QLabel("Deep Fake")
+        footer_row = QHBoxLayout()
+        footer_row.setContentsMargins(0, 0, 0, 0)
+
+        footer = QLabel("Deep Live Cam")
         footer.setObjectName("linkLabel")
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         footer.setCursor(Qt.CursorShape.PointingHandCursor)
         footer.mousePressEvent = lambda _e: webbrowser.open("https://deeplivecam.net")
-        main_layout.addWidget(footer)
+        footer_row.addWidget(footer, 1)
+
+        # Theme toggle button
+        self._theme_btn = QPushButton()
+        self._theme_btn.setObjectName("secondary")
+        self._theme_btn.setFixedSize(36, 36)
+        self._theme_btn.setToolTip(_("Toggle dark/light theme"))
+        self._update_theme_btn_icon()
+        self._theme_btn.clicked.connect(self._on_toggle_theme)
+        footer_row.addWidget(self._theme_btn, alignment=Qt.AlignmentFlag.AlignRight)
+
+        layout.addLayout(footer_row)
+
+        # --- keyboard shortcuts ---
+        QShortcut(QKeySequence("Return"), self, self._on_start)
+        QShortcut(QKeySequence("Space"), self, self._on_start)
+        QShortcut(QKeySequence("Escape"), self, self.close)
+        QShortcut(QKeySequence("Ctrl+O"), self, self._on_select_source)
+        QShortcut(QKeySequence("Ctrl+T"), self, self._on_select_target)
+        QShortcut(QKeySequence("Ctrl+L"), self, self._on_live)
+        QShortcut(QKeySequence("Ctrl+Q"), self, lambda: self._destroy_cb())
+
+    # ── image row ────────────────────────────────────────────────────────
+
+    def _build_image_row(self) -> QVBoxLayout:
+        layout = QVBoxLayout()
+        layout.setSpacing(8)
+
+        # Source face preview
+        self.source_label = _make_image_drop(_("Source face"), (200, 200))
+        layout.addWidget(self.source_label, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        btn_row = QHBoxLayout()
+        self.btn_select_source = QPushButton(_("Select a face"))
+        self.btn_select_source.setToolTip(
+            _("Choose the source face image to swap onto the target")
+        )
+        self.btn_select_source.clicked.connect(self._on_select_source)
+        self.btn_random_face = QPushButton("🔄")
+        self.btn_random_face.setObjectName("secondary")
+        self.btn_random_face.setFixedWidth(40)
+        self.btn_random_face.setToolTip(
+            _("Get a random face from thispersondoesnotexist.com")
+        )
+        self.btn_random_face.clicked.connect(self._on_random_face)
+        btn_row.addWidget(self.btn_select_source)
+        btn_row.addWidget(self.btn_random_face)
+        btn_row.addStretch(1)
+        layout.addLayout(btn_row)
+
+        return layout
 
     # ── options card ─────────────────────────────────────────────────────
 
     def _build_options_card(self) -> QGroupBox:
-        card = QGroupBox(_("Options"))
+        card = QGroupBox(_("Live Options"))
         grid = QGridLayout(card)
         grid.setHorizontalSpacing(20)
         grid.setVerticalSpacing(6)
@@ -665,39 +706,21 @@ class MainWindow(QMainWindow):
             )
             return sw
 
-        self.sw_keep_fps = make("keep_fps", "Keep fps",
-                                "Output video keeps the original frame rate")
-        self.sw_keep_audio = make("keep_audio", "Keep audio",
-                                  "Copy audio track from the source video to output")
-        self.sw_keep_frames = make("keep_frames", "Keep frames",
-                                   "Keep extracted frames on disk after processing")
-        self.sw_many_faces = make("many_faces", "Many faces",
-                                  "Swap every detected face, not just the primary one")
-        self.sw_poisson = make("poisson_blend", "Poisson Blend",
-                               "Blend face edges smoothly using Poisson blending")
-        self.sw_color_fix = make("color_correction", "Fix Blueish Cam",
-                                 "Fix blue/green color cast from some webcams")
         self.sw_show_fps = make("show_fps", "Show FPS",
                                 "Display frames-per-second counter on the live preview")
+        self.sw_live_mirror = make("live_mirror", "Live Mirror",
+                                   "Mirror the live camera display horizontally")
+        self.sw_color_fix = make("color_correction", "Fix Blueish Cam",
+                                 "Fix blue/green color cast from some webcams")
 
         # Map faces is special — closes mapper when toggled off.
         self.sw_map_faces = _Switch(_("Map faces"), modules.globals.map_faces,
                                     _("Manually assign which source face maps to which target face"))
         self.sw_map_faces.toggled.connect(self._on_map_faces_toggled)
 
-        # Layout: 2 columns of switches
-        items = [
-            self.sw_keep_fps, self.sw_keep_audio,
-            self.sw_keep_frames, self.sw_many_faces,
-            self.sw_map_faces, self.sw_show_fps,
-            self.sw_poisson, self.sw_color_fix,
-        ]
-        for i, w in enumerate(items):
-            grid.addWidget(w, i // 2, i % 2)
-
         # Face enhancer dropdown
         enhancer_label = QLabel(_("Face Enhancer:"))
-        grid.addWidget(enhancer_label, len(items) // 2, 0)
+        grid.addWidget(enhancer_label, 0, 0)
 
         self.cb_enhancer = QComboBox()
         self.cb_enhancer.addItems(["None", "GFPGAN", "GPEN-512", "GPEN-256"])
@@ -711,7 +734,16 @@ class MainWindow(QMainWindow):
         self.cb_enhancer.setCurrentText(initial)
         self.cb_enhancer.currentTextChanged.connect(self._on_enhancer_change)
         self.cb_enhancer.setToolTip(_("Select a face enhancement model (None = no enhancement)"))
-        grid.addWidget(self.cb_enhancer, len(items) // 2, 1)
+        grid.addWidget(self.cb_enhancer, 0, 1)
+
+        # Layout: 2 columns of toggles
+        items = [
+            self.sw_show_fps,
+            self.sw_live_mirror, self.sw_color_fix,
+            self.sw_map_faces,
+        ]
+        for i, w in enumerate(items):
+            grid.addWidget(w, (i // 2) + 1, i % 2)
 
         return card
 
@@ -744,39 +776,129 @@ class MainWindow(QMainWindow):
         self.s_sharpness.setToolTip(_("Sharpen the enhanced face output"))
         grid.addWidget(self.s_sharpness, 1, 1)
 
-        # Mouth mask
-        grid.addWidget(QLabel(_("Mouth Mask")), 2, 0)
-        self.s_mouth = slider(0.0, 100.0, modules.globals.mouth_mask_size, 1,
-                              self._on_mouth_mask_change)
-        self.s_mouth.sliderPressed.connect(self._on_mouth_mask_pressed)
-        self.s_mouth.sliderReleased.connect(self._on_mouth_mask_released)
-        self.s_mouth.setToolTip(
-            _("0 = use swapped mouth, 100 = expose original mouth to chin area")
-        )
-        grid.addWidget(self.s_mouth, 2, 1)
         return card
+
+    # ── progress table (thay thế target card) ──────────────────────────
+
+    def _build_progress_table(self) -> QGroupBox:
+        card = QGroupBox(_("Tiến trình xử lý"))
+        layout = QVBoxLayout(card)
+        layout.setSpacing(6)
+
+        # Dòng trạng thái chính
+        status_row = QHBoxLayout()
+        self.progress_icon = QLabel("⏳")
+        self.progress_icon.setStyleSheet("font-size: 18px;")
+        status_row.addWidget(self.progress_icon)
+        self.progress_step = QLabel(_("Sẵn sàng"))
+        self.progress_step.setStyleSheet("font-size: 13px; font-weight: 600;")
+        status_row.addWidget(self.progress_step, 1)
+        self.progress_time = QLabel("")
+        self.progress_time.setStyleSheet("color: #888; font-size: 11px;")
+        status_row.addWidget(self.progress_time)
+        layout.addLayout(status_row)
+
+        # Progress bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFixedHeight(16)
+        self.progress_bar.setTextVisible(True)
+        layout.addWidget(self.progress_bar)
+
+        # Nhật ký xử lý (log)
+        self.progress_log = QListWidget()
+        self.progress_log.setMaximumHeight(120)
+        self.progress_log.setAlternatingRowColors(True)
+        self.progress_log.setStyleSheet("QListWidget { font-size: 11px; } QListWidget::item { padding: 2px 4px; }")
+        layout.addWidget(self.progress_log)
+
+        # File info row (thu gọn) — cho phép chọn target/output
+        file_row = QHBoxLayout()
+        file_row.setSpacing(4)
+        self.lbl_target = QLabel(_("No file selected"))
+        self.lbl_target.setStyleSheet("color: #888; font-size: 11px;")
+        self.lbl_target.setToolTip(_("Target file:"))
+        file_row.addWidget(QLabel("📁"), 0, Qt.AlignCenter)
+        file_row.addWidget(self.lbl_target, 1)
+        self.btn_select_target = QPushButton(_("Chọn tệp"))
+        self.btn_select_target.setObjectName("secondary")
+        self.btn_select_target.setFixedHeight(24)
+        self.btn_select_target.clicked.connect(self._on_select_target)
+        file_row.addWidget(self.btn_select_target)
+        self.lbl_output = QLabel(_("Auto"))
+        self.lbl_output.setStyleSheet("color: #888; font-size: 11px;")
+        self.lbl_output.setToolTip(_("Output:"))
+        file_row.addWidget(self.lbl_output)
+        self.btn_select_output = QPushButton(_("Đầu ra"))
+        self.btn_select_output.setObjectName("secondary")
+        self.btn_select_output.setFixedHeight(24)
+        self.btn_select_output.clicked.connect(self._on_select_output)
+        file_row.addWidget(self.btn_select_output)
+        layout.addLayout(file_row)
+
+        # Kết nối tín hiệu cập nhật
+        self._progress_log_entries = []
+        self._connect_progress()
+
+        return card
+
+    def _connect_progress(self) -> None:
+        _BRIDGE.statusChanged.connect(self._on_progress_status)
+
+    def _on_progress_status(self, text: str) -> None:
+        """Cập nhật bảng tiến trình khi nhận được status mới."""
+        # Cập nhật bước hiện tại
+        self.progress_step.setText(text)
+        self.progress_icon.setText("🔄")
+
+        # Thêm vào nhật ký
+        from datetime import datetime
+        ts = datetime.now().strftime("%H:%M:%S")
+        entry = f"[{ts}] {text}"
+        self._progress_log_entries.append(entry)
+        if len(self._progress_log_entries) > 50:
+            self._progress_log_entries.pop(0)
+        self.progress_log.addItem(entry)
+        self.progress_log.scrollToBottom()
+
+        # Phân tích tiến độ từ text
+        if "/" in text and any(c.isdigit() for c in text.split("/")[0].strip()):
+            import re
+            nums = re.findall(r'(\d+)\s*/\s*(\d+)', text)
+            if nums:
+                cur, total = int(nums[0][0]), int(nums[0][1])
+                if total > 0:
+                    pct = min(int(cur / total * 100), 100)
+                    self.progress_bar.setValue(pct)
+
+    def _reset_progress(self) -> None:
+        """Đặt lại bảng tiến trình về trạng thái sẵn sàng."""
+        self.progress_icon.setText("⏳")
+        self.progress_step.setText(_("Sẵn sàng"))
+        self.progress_bar.setValue(0)
+        self.progress_time.setText("")
+        self.progress_log.clear()
+        self._progress_log_entries.clear()
 
     # ── action row ───────────────────────────────────────────────────────
 
     def _build_action_row(self) -> QHBoxLayout:
         row = QHBoxLayout()
+        row.addStretch(1)
+
         self.btn_start = QPushButton(_("Start"))
-        self.btn_start.setToolTip(_("Begin processing the target image/video with selected face"))
+        self.btn_start.setObjectName("primary")
+        self.btn_start.setToolTip(_("Start processing the target image/video with the selected source face"))
         self.btn_start.clicked.connect(self._on_start)
+        row.addWidget(self.btn_start)
 
         self.btn_destroy = QPushButton(_("Destroy"))
         self.btn_destroy.setObjectName("danger")
         self.btn_destroy.setToolTip(_("Stop processing and close the application"))
         self.btn_destroy.clicked.connect(lambda: self._destroy_cb())
 
-        self.btn_preview = QPushButton(_("Preview"))
-        self.btn_preview.setObjectName("secondary")
-        self.btn_preview.setToolTip(_("Show/hide a preview of the processed output"))
-        self.btn_preview.clicked.connect(self._on_toggle_preview)
-
-        row.addWidget(self.btn_start)
         row.addWidget(self.btn_destroy)
-        row.addWidget(self.btn_preview)
         return row
 
     # ── camera card ──────────────────────────────────────────────────────
@@ -790,7 +912,7 @@ class MainWindow(QMainWindow):
 
         self.cb_camera = QComboBox()
         if not self._camera_names or self._camera_names[0] == "No cameras found":
-            self.cb_camera.addItem("No cameras found")
+            self.cb_camera.addItem(_("No cameras found"))
             self.cb_camera.setEnabled(False)
             cam_ok = False
         else:
@@ -811,77 +933,9 @@ class MainWindow(QMainWindow):
 
     def set_status(self, text: str) -> None:
         self._status_label.setText(text)
-        lower_text = text.lower()
-        base_style = "border-radius: 8px; padding: 10px 16px; font-size: 11pt; font-family: \"Segoe UI\", \"SF Pro Display\", Arial, sans-serif;"
-        if "succeed" in lower_text or "success" in lower_text or "sẵn sàng" in lower_text or "completed" in lower_text or "submitted" in lower_text or "ready" in lower_text:
-            self._status_label.setStyleSheet(f"{base_style} color: #a5d6a7; background-color: #1b2e1e; border: 1px solid #2e7d32; font-weight: 600;")
-        elif "fail" in lower_text or "error" in lower_text or "required" in lower_text or "not found" in lower_text or "denied" in lower_text or "ignore" in lower_text:
-            self._status_label.setStyleSheet(f"{base_style} color: #ef9a9a; background-color: #2d1d1d; border: 1px solid #c62828; font-weight: 600;")
-        elif "processing" in lower_text or "progressing" in lower_text or "extracting" in lower_text or "creating" in lower_text or "restoring" in lower_text or "detecting" in lower_text or "downloading" in lower_text:
-            self._status_label.setStyleSheet(f"{base_style} color: #90caf9; background-color: #1a237e; border: 1px solid #1565c0; font-weight: 600;")
-        else:
-            self._status_label.setStyleSheet(f"{base_style} color: #e0e0e0; background-color: #262626; border: 1px solid #3a3a3a; font-weight: 500;")
-
-    def _update_target_preview_swapped(self) -> None:
-        if not hasattr(self, "_preview_debounce_timer"):
-            self._preview_debounce_timer = QTimer(self)
-            self._preview_debounce_timer.setSingleShot(True)
-            self._preview_debounce_timer.timeout.connect(self._do_update_target_preview_swapped)
-        self._preview_debounce_timer.start(150) # 150ms debounce to keep sliders buttery smooth
-
-    def _do_update_target_preview_swapped(self) -> None:
-        if not (modules.globals.source_path and modules.globals.target_path):
-            return
-        
-        self.set_status(_("Processing..."))
-        
-        def worker():
-            try:
-                # Get first frame of target
-                temp_frame = get_video_frame(modules.globals.target_path, 0)
-                if temp_frame is None:
-                    return
-                
-                # Check for source face
-                source_img = cv2.imread(modules.globals.source_path)
-                if source_img is None:
-                    return
-                source_face = get_one_face(source_img)
-                
-                if source_face is not None:
-                    from modules.processors.frame.core import get_frame_processors_modules as _gfpm
-                    for fp in _gfpm(modules.globals.frame_processors):
-                        fp.pre_start()
-                        temp_frame = fp.process_frame(source_face, temp_frame)
-                
-                # Rescale BGR to fit within 200x200 preview box preserving aspect ratio
-                h, w = temp_frame.shape[:2]
-                ratio = min(200 / w, 200 / h)
-                new_size = (max(1, int(w * ratio)), max(1, int(h * ratio)))
-                temp_frame = cv2.resize(temp_frame, new_size, interpolation=cv2.INTER_LANCZOS4)
-                
-                pixmap = _bgr_to_qpixmap(temp_frame)
-                
-                def update_ui():
-                    self.target_label.setPixmap(pixmap)
-                    self.target_label.setText("")
-                    self.set_status(_("Processing succeed!"))
-                    # If preview window is open, refresh it as well!
-                    if _PREVIEW is not None and _PREVIEW.isVisible():
-                        _PREVIEW.refresh_frame()
-                
-                QTimer.singleShot(0, update_ui)
-            except Exception as e:
-                def update_ui_err():
-                    self.set_status(f"Lỗi: {e}")
-                QTimer.singleShot(0, update_ui_err)
-                
-        threading.Thread(target=worker, daemon=True).start()
 
     def _on_select_source(self) -> None:
         global _RECENT_SOURCE_DIR
-        if _PREVIEW is not None:
-            _PREVIEW.hide()
         path, _filter = QFileDialog.getOpenFileName(
             self, _("select an source image"),
             _RECENT_SOURCE_DIR or "",
@@ -892,8 +946,6 @@ class MainWindow(QMainWindow):
             _RECENT_SOURCE_DIR = os.path.dirname(path)
             self.source_label.setPixmap(render_image_preview(path, (200, 200)))
             self.source_label.setText("")
-            # Trigger auto swapped face preview!
-            self._update_target_preview_swapped()
         elif not path:
             return
         else:
@@ -901,41 +953,7 @@ class MainWindow(QMainWindow):
             self.source_label.clear()
             self.source_label.setText(_("Source face"))
 
-    def _on_select_target(self) -> None:
-        global _RECENT_TARGET_DIR
-        if _PREVIEW is not None:
-            _PREVIEW.hide()
-        path, _filter = QFileDialog.getOpenFileName(
-            self, _("select an target image or video"),
-            _RECENT_TARGET_DIR or "",
-            "Media (*.png *.jpg *.jpeg *.gif *.bmp *.mp4 *.mkv)",
-        )
-        if not path:
-            return
-        if is_image(path):
-            modules.globals.target_path = path
-            _RECENT_TARGET_DIR = os.path.dirname(path)
-            self.target_label.setPixmap(render_image_preview(path, (200, 200)))
-            self.target_label.setText("")
-            # Trigger auto swapped face preview!
-            self._update_target_preview_swapped()
-        elif is_video(path):
-            modules.globals.target_path = path
-            _RECENT_TARGET_DIR = os.path.dirname(path)
-            pm = render_video_preview(path, (200, 200))
-            if pm:
-                self.target_label.setPixmap(pm)
-                self.target_label.setText("")
-            # Trigger auto swapped face preview!
-            self._update_target_preview_swapped()
-        else:
-            modules.globals.target_path = None
-            self.target_label.clear()
-            self.target_label.setText(_("Target"))
-
     def _on_random_face(self) -> None:
-        if _PREVIEW is not None:
-            _PREVIEW.hide()
         try:
             response = requests.get(
                 "https://thispersondoesnotexist.com/",
@@ -949,25 +967,77 @@ class MainWindow(QMainWindow):
             modules.globals.source_path = temp_path
             self.source_label.setPixmap(render_image_preview(temp_path, (200, 200)))
             self.source_label.setText("")
-            self._update_target_preview_swapped()
         except Exception as exc:
             print(f"Failed to fetch random face: {exc}")
 
-    def _on_swap_paths(self) -> None:
-        global _RECENT_SOURCE_DIR, _RECENT_TARGET_DIR
-        sp = modules.globals.source_path
-        tp = modules.globals.target_path
-        if not (sp and tp and is_image(sp) and is_image(tp)):
-            return
-        modules.globals.source_path, modules.globals.target_path = tp, sp
-        _RECENT_SOURCE_DIR = os.path.dirname(tp)
-        _RECENT_TARGET_DIR = os.path.dirname(sp)
-        if _PREVIEW is not None:
-            _PREVIEW.hide()
-        self.source_label.setPixmap(render_image_preview(tp, (200, 200)))
-        self.source_label.setText("")
-        # Trigger swapped preview update
-        self._update_target_preview_swapped()
+    def _on_select_target(self) -> None:
+        global _RECENT_SOURCE_DIR
+        path, _filter = QFileDialog.getOpenFileName(
+            self, _("select a target image or video"),
+            _RECENT_SOURCE_DIR or "",
+            "Media (*.png *.jpg *.jpeg *.gif *.bmp *.mp4 *.mkv *.avi *.mov)",
+        )
+        if path:
+            modules.globals.target_path = path
+            _RECENT_SOURCE_DIR = os.path.dirname(path)
+            self.lbl_target.setText(os.path.basename(path))
+            self.lbl_target.setStyleSheet("color: #e6e6e6;")
+            if modules.globals.output_path is None:
+                from modules.utilities import normalize_output_path
+                modules.globals.output_path = normalize_output_path(
+                    modules.globals.source_path, path, None
+                )
+                self.lbl_output.setText(os.path.basename(modules.globals.output_path) if modules.globals.output_path else _("Auto"))
+
+    def _on_select_output(self) -> None:
+        path, _filter = QFileDialog.getSaveFileName(
+            self, _("select output file"),
+            "",
+            "Media (*.mp4 *.mkv *.avi *.png *.jpg)",
+        )
+        if path:
+            modules.globals.output_path = path
+            self.lbl_output.setText(os.path.basename(path))
+            self.lbl_output.setStyleSheet("color: #e6e6e6;")
+
+    def _on_start(self) -> None:
+        if modules.globals.target_path is None:
+            self._on_select_target()
+            if modules.globals.target_path is None:
+                return
+        # Auto-detect source face from target if none selected
+        if modules.globals.source_path is None:
+            update_status("Đang phát hiện khuôn mặt từ target...")
+            ref_face = detect_first_face_from_target(modules.globals.target_path)
+            if ref_face is not None:
+                modules.globals.reference_face = ref_face
+                update_status("Đã tự động lấy khuôn mặt từ target")
+            else:
+                update_status("Không tìm thấy khuôn mặt nào trong target")
+                return
+        if not modules.globals.frame_processors:
+            modules.globals.frame_processors = ["face_swapper"]
+        self._reset_progress()
+        self.btn_start.setEnabled(False)
+        self.btn_start.setText(_("Đang xử lý..."))
+        QTimer.singleShot(0, self._run_start)
+
+    def _run_start(self) -> None:
+        def task():
+            try:
+                modules.core.start()
+                QTimer.singleShot(0, lambda: self.progress_icon.setText("✅"))
+            except Exception as e:
+                update_status(f"Xử lý thất bại: {e}")
+            finally:
+                QTimer.singleShot(0, self._finish_start)
+
+        thread = threading.Thread(target=task, daemon=True)
+        thread.start()
+
+    def _finish_start(self) -> None:
+        self.btn_start.setText(_("Bắt đầu"))
+        self.btn_start.setEnabled(True)
 
     def _on_map_faces_toggled(self, value: bool) -> None:
         modules.globals.map_faces = value
@@ -987,8 +1057,6 @@ class MainWindow(QMainWindow):
         selected = key_map.get(choice)
         if selected:
             _update_tumbler(selected, True)
-        save_switch_states()
-        self._update_target_preview_swapped()
 
     def _on_transparency_change(self, value: float) -> None:
         modules.globals.opacity = value
@@ -1001,79 +1069,16 @@ class MainWindow(QMainWindow):
             update_status("Transparency set to 100%.")
         else:
             modules.globals.face_swapper_enabled = True
-            update_status(f"Transparency set to {pct}%")
-        self._update_target_preview_swapped()
+            update_status(_("Transparency set to %d%%") % pct)
 
     def _on_sharpness_change(self, value: float) -> None:
         modules.globals.sharpness = value
-        update_status(f"Sharpness set to {value:.1f}")
-        self._update_target_preview_swapped()
-
-    def _on_mouth_mask_change(self, value: float) -> None:
-        modules.globals.mouth_mask_size = value
-        modules.globals.mouth_mask = value > 0
-        if value <= 0:
-            modules.globals.show_mouth_mask_box = False
-        self._update_target_preview_swapped()
-
-    def _on_mouth_mask_pressed(self) -> None:
-        if modules.globals.mouth_mask_size > 0:
-            modules.globals.show_mouth_mask_box = True
-
-    def _on_mouth_mask_released(self) -> None:
-        modules.globals.show_mouth_mask_box = False
-
-    def _on_start(self) -> None:
-        if _MAPPER is not None and _MAPPER.isVisible():
-            update_status("Please complete pop-up or close it.")
-            return
-        if modules.globals.map_faces:
-            modules.globals.source_target_map = []
-            if is_image(modules.globals.target_path):
-                update_status("Getting unique faces")
-                get_unique_faces_from_target_image()
-            elif is_video(modules.globals.target_path):
-                update_status("Getting unique faces")
-                get_unique_faces_from_target_video()
-            if modules.globals.source_target_map:
-                _open_mapper_dialog(self._start_cb, modules.globals.source_target_map)
-            else:
-                update_status("No faces found in target")
-        else:
-            self._select_output_and_start()
-
-    def _select_output_and_start(self) -> None:
-        global _RECENT_OUTPUT_DIR
-        if is_image(modules.globals.target_path):
-            path, _f = QFileDialog.getSaveFileName(
-                self, _("save image output file"),
-                os.path.join(_RECENT_OUTPUT_DIR or "", "output.png"),
-                "Images (*.png *.jpg *.jpeg *.bmp)",
-            )
-        elif is_video(modules.globals.target_path):
-            path, _f = QFileDialog.getSaveFileName(
-                self, _("save video output file"),
-                os.path.join(_RECENT_OUTPUT_DIR or "", "output.mp4"),
-                "Videos (*.mp4 *.mkv)",
-            )
-        else:
-            return
-        if path:
-            modules.globals.output_path = path
-            _RECENT_OUTPUT_DIR = os.path.dirname(path)
-            self._start_cb()
-
-    def _on_toggle_preview(self) -> None:
-        if _PREVIEW is None:
-            return
-        if _PREVIEW.isVisible():
-            _PREVIEW.hide()
-        elif modules.globals.source_path and modules.globals.target_path:
-            _PREVIEW.init_for_target()
-            _PREVIEW.refresh_frame(0)
-            _PREVIEW.show()
+        update_status(_("Sharpness set to %.1f") % value)
 
     def _on_live(self) -> None:
+        if self._stop_event is not None and not self._stop_event.is_set():
+            self._stop_live_preview()
+            return
         idx = self.cb_camera.currentIndex()
         if idx < 0 or idx >= len(self._camera_indices):
             update_status("No camera available")
@@ -1091,15 +1096,137 @@ class MainWindow(QMainWindow):
             from modules.processors.frame.face_swapper import get_face_swapper
             get_face_analyser()
             get_face_swapper()
-            _open_webcam_preview(camera_index)
+            self._start_live_preview(camera_index)
         else:
             modules.globals.source_target_map = []
             _open_live_mapper_dialog(camera_index, modules.globals.source_target_map)
 
-    def closeEvent(self, event):
-        # Treat OS-level close as Destroy click
+    def _start_live_preview(self, camera_index: int) -> None:
+        self._cap = VideoCapturer(camera_index)
+        if not self._cap.start(PREVIEW_DEFAULT_WIDTH, PREVIEW_DEFAULT_HEIGHT, 60):
+            update_status("Failed to start camera")
+            return
+
+        camera_fps = self._cap.actual_fps
+        print(
+            f"[webcam] Camera running at {self._cap.actual_width}x"
+            f"{self._cap.actual_height}@{camera_fps:.0f}fps"
+        )
+
+        self._capture_queue = queue.Queue(maxsize=2)
+        self._processed_queue = queue.Queue(maxsize=2)
+        self._stop_event = threading.Event()
+
+        self._capture_worker = _CaptureWorker(
+            self._cap, self._capture_queue, self._stop_event
+        )
+        self._processing_worker = _ProcessingWorker(
+            self._capture_queue, self._processed_queue, self._stop_event, camera_fps
+        )
+        self._capture_worker.start()
+        self._processing_worker.start()
+
+        poll_ms = max(1, min(16, int(500 / max(camera_fps, 1))))
+        self._preview_timer = QTimer(self)
+        self._preview_timer.timeout.connect(self._tick_preview)
+        self._preview_timer.start(poll_ms)
+
+        self._saved_source_pixmap = self.source_label.pixmap()
+        self.source_label.setText("")
+        self.btn_live.setText(_("Stop"))
+        self.btn_live.setToolTip(_("Stop live preview"))
+        self.cb_camera.setEnabled(False)
+        update_status("Live preview started")
+
+        self._open_live_preview_window()
+
+    def _open_live_preview_window(self) -> None:
+        if hasattr(self, '_live_preview_window') and self._live_preview_window is not None:
+            try:
+                self._live_preview_window.close()
+            except Exception:
+                pass
+        self._live_preview_window = _LivePreviewWindow(self._processed_queue, self._stop_event)
+        self._live_preview_window.show()
+
+    def _stop_live_preview(self) -> None:
+        if self._stop_event:
+            self._stop_event.set()
+        if self._preview_timer:
+            try:
+                self._preview_timer.stop()
+            except Exception:
+                pass
+            self._preview_timer = None
+        for worker in (self._capture_worker, self._processing_worker):
+            if worker:
+                try:
+                    worker.wait(2000)
+                except Exception:
+                    pass
+        if self._cap:
+            try:
+                self._cap.release()
+            except Exception:
+                pass
+        if hasattr(self, '_live_preview_window') and self._live_preview_window is not None:
+            try:
+                self._live_preview_window.close()
+            except Exception:
+                pass
+            self._live_preview_window = None
+        self._cap = None
+        self._capture_queue = None
+        self._processed_queue = None
+        self._stop_event = None
+        self._capture_worker = None
+        self._processing_worker = None
+
+        self.source_label.clear()
+        if self._saved_source_pixmap is not None:
+            self.source_label.setPixmap(self._saved_source_pixmap)
+            self._saved_source_pixmap = None
+        else:
+            self.source_label.setText(_("Source face"))
+        self.btn_live.setText(_("Live"))
+        self.btn_live.setToolTip(_("Start real-time face swap using webcam"))
+        self.cb_camera.setEnabled(True)
+        update_status("Live preview stopped")
+
+    def _tick_preview(self) -> None:
+        if self._stop_event and self._stop_event.is_set():
+            self._stop_live_preview()
+            return
+        if not self._processed_queue:
+            return
+        try:
+            bgr_frame = self._processed_queue.get_nowait()
+        except queue.Empty:
+            return
+        bgr_frame = fit_image_to_size(bgr_frame, self.source_label.width(), self.source_label.height())
+        self.source_label.setPixmap(_bgr_to_qpixmap(bgr_frame))
+
+    def closeEvent(self, event) -> None:
+        self._stop_live_preview()
         self._destroy_cb()
         event.accept()
+
+    def _on_toggle_theme(self) -> None:
+        """Switch between dark and light themes."""
+        modules.globals.theme = "light" if modules.globals.theme == "dark" else "dark"
+        apply_theme()
+        self._update_theme_btn_icon()
+        theme_name = _("Light") if modules.globals.theme == "light" else _("Dark")
+        update_status(_("Switched to %s theme") % theme_name)
+
+    def _update_theme_btn_icon(self) -> None:
+        """Set button text based on current theme."""
+        if modules.globals.theme == "dark":
+            self._theme_btn.setText("☀️")
+            self._theme_btn.setToolTip(_("Switch to Light theme"))
+        else:
+            self._theme_btn.setText("🌙")
+            self._theme_btn.setToolTip(_("Switch to Dark theme"))
 
 
 def _update_tumbler(var: str, value: bool) -> None:
@@ -1109,59 +1236,6 @@ def _update_tumbler(var: str, value: bool) -> None:
     # toggling enhancers takes effect immediately.
     if _WEBCAM_PREVIEW is not None and _WEBCAM_PREVIEW.isVisible():
         get_frame_processors_modules(modules.globals.frame_processors)
-
-
-# ─── preview window (still-image / video scrub) ──────────────────────────
-
-
-class PreviewWindow(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle(_("Preview"))
-        self.resize(PREVIEW_DEFAULT_WIDTH, PREVIEW_DEFAULT_HEIGHT)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self._image_label = QLabel()
-        self._image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._image_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        layout.addWidget(self._image_label, 1)
-
-        self._slider = QSlider(Qt.Orientation.Horizontal)
-        self._slider.setRange(0, 0)
-        self._slider.valueChanged.connect(self.refresh_frame)
-        layout.addWidget(self._slider)
-
-    def init_for_target(self) -> None:
-        if is_image(modules.globals.target_path):
-            self._slider.hide()
-        elif is_video(modules.globals.target_path):
-            total = get_video_frame_total(modules.globals.target_path)
-            self._slider.setRange(0, max(0, total - 1))
-            self._slider.setValue(0)
-            self._slider.show()
-
-    def refresh_frame(self, frame_number: int = 0) -> None:
-        if not (modules.globals.source_path and modules.globals.target_path):
-            return
-        update_status("Processing...")
-        temp_frame = get_video_frame(modules.globals.target_path, frame_number)
-        if modules.globals.nsfw_filter and check_and_ignore_nsfw(temp_frame):
-            return
-        from modules.processors.frame.core import get_frame_processors_modules as _gfpm
-        for fp in _gfpm(modules.globals.frame_processors):
-            temp_frame = fp.process_frame(
-                get_one_face(cv2.imread(modules.globals.source_path)), temp_frame
-            )
-        # Fit to current widget size while preserving aspect ratio.
-        h, w = temp_frame.shape[:2]
-        bound_w = min(PREVIEW_MAX_WIDTH, max(self.width(), PREVIEW_DEFAULT_WIDTH))
-        bound_h = min(PREVIEW_MAX_HEIGHT, max(self.height(), PREVIEW_DEFAULT_HEIGHT))
-        ratio = min(bound_w / w, bound_h / h)
-        new_size = (max(1, int(w * ratio)), max(1, int(h * ratio)))
-        temp_frame = cv2.resize(temp_frame, new_size, interpolation=cv2.INTER_LANCZOS4)
-        self._image_label.setPixmap(_bgr_to_qpixmap(temp_frame))
-        update_status("Processing succeed!")
 
 
 # ─── webcam preview window ───────────────────────────────────────────────
@@ -1215,7 +1289,6 @@ class _ProcessingWorker(QThread):
         fps = 0.0
         det_count = 0
         cached_target_face = None
-        cached_many_faces = None
         det_interval = max(1, round(self._fps * 0.08))
 
         while not self._stop.is_set():
@@ -1238,18 +1311,15 @@ class _ProcessingWorker(QThread):
 
                 det_count += 1
                 if det_count % det_interval == 0:
-                    if modules.globals.many_faces:
-                        cached_target_face = None
-                        cached_many_faces = detect_many_faces_fast(temp_frame)
-                    else:
-                        cached_target_face = detect_one_face_fast(temp_frame)
-                        cached_many_faces = None
+                    cached_target_face = detect_one_face_fast(temp_frame)
 
-                cached_faces = None
-                if cached_many_faces:
-                    cached_faces = cached_many_faces
-                elif cached_target_face is not None:
-                    cached_faces = [cached_target_face]
+                cached_faces = [cached_target_face] if cached_target_face is not None else None
+
+                # Fast detection skips the 2d106 landmark model, but the mouth
+                # mask needs it. Attach landmarks on demand (computed once per
+                # detection cycle — the helper no-ops if already present).
+                if modules.globals.mouth_mask and cached_faces:
+                    ensure_landmarks(temp_frame, cached_faces)
 
                 for fp in frame_processors:
                     if fp.NAME == "DLC.FACE-ENHANCER":
@@ -1269,14 +1339,7 @@ class _ProcessingWorker(QThread):
                             )
                     elif fp.NAME == "DLC.FACE-SWAPPER":
                         swapped_bboxes = []
-                        if modules.globals.many_faces and cached_many_faces:
-                            result = temp_frame.copy()
-                            for t_face in cached_many_faces:
-                                result = fp.swap_face(source_image, t_face, result)
-                                if hasattr(t_face, "bbox") and t_face.bbox is not None:
-                                    swapped_bboxes.append(t_face.bbox.astype(int))
-                            temp_frame = result
-                        elif cached_target_face is not None:
+                        if cached_target_face is not None:
                             temp_frame = fp.swap_face(
                                 source_image, cached_target_face, temp_frame
                             )
@@ -1327,10 +1390,50 @@ class _ProcessingWorker(QThread):
                     pass
 
 
+class _LivePreviewWindow(QWidget):
+    """Resizable live preview window that reads from a shared processed queue."""
+
+    def __init__(self, processed_queue: queue.Queue, stop_event: threading.Event):
+        super().__init__()
+        self._queue = processed_queue
+        self._stop = stop_event
+        self.setWindowTitle(_("Live Preview"))
+        self.resize(PREVIEW_DEFAULT_WIDTH, PREVIEW_DEFAULT_HEIGHT)
+        self.setMinimumSize(320, 180)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self._image_label = QLabel()
+        self._image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._image_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout.addWidget(self._image_label, 1)
+
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._tick)
+        self._timer.start(30)
+
+    def _tick(self) -> None:
+        if self._stop.is_set():
+            self.close()
+            return
+        try:
+            bgr_frame = self._queue.get_nowait()
+        except queue.Empty:
+            return
+        bgr_frame = fit_image_to_size(bgr_frame, self.width(), self.height())
+        self._image_label.setPixmap(_bgr_to_qpixmap(bgr_frame))
+
+    def closeEvent(self, event) -> None:
+        try:
+            self._timer.stop()
+        except Exception:
+            pass
+        event.accept()
+
+
 class WebcamPreviewWindow(QWidget):
     def __init__(self, camera_index: int):
         super().__init__()
-        self.setWindowTitle("Live Preview")
+        self.setWindowTitle(_("Live Preview"))
         self.resize(PREVIEW_DEFAULT_WIDTH, PREVIEW_DEFAULT_HEIGHT)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -1419,99 +1522,6 @@ def _make_thumb(cv2_img: np.ndarray) -> QPixmap:
         (MAPPER_PREVIEW_SIZE, MAPPER_PREVIEW_SIZE), Image.LANCZOS
     )
     return _pil_to_qpixmap(image)
-
-
-class MapperDialog(QDialog):
-    """Source × Target mapper for image / video processing."""
-
-    def __init__(self, start_cb: Callable, mapping: list):
-        super().__init__(_MAIN)
-        self._start_cb = start_cb
-        self._map = mapping
-        self.setWindowTitle(_("Source x Target Mapper"))
-        self.resize(POPUP_WIDTH, POPUP_HEIGHT)
-        layout = QVBoxLayout(self)
-
-        self._scroll = QScrollArea()
-        self._scroll.setWidgetResizable(True)
-        layout.addWidget(self._scroll, 1)
-
-        self._status = QLabel("")
-        self._status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self._status)
-
-        btn_submit = QPushButton(_("Submit"))
-        btn_submit.clicked.connect(self._on_submit)
-        layout.addWidget(btn_submit, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        self._rebuild()
-
-    def set_status(self, text: str) -> None:
-        self._status.setText(_(text))
-
-    def _rebuild(self) -> None:
-        body = QWidget()
-        grid = QGridLayout(body)
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(10)
-        for item in self._map:
-            row = item["id"]
-            btn = QPushButton(_("Select source image"))
-            btn.setFixedWidth(200)
-            btn.clicked.connect(lambda _c, n=row: self._select_source(n))
-            grid.addWidget(btn, row, 0)
-
-            src_label = QLabel(f"S-{row}")
-            src_label.setFixedSize(MAPPER_PREVIEW_SIZE, MAPPER_PREVIEW_SIZE)
-            src_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            src_label.setStyleSheet("border: 1px dashed #555;")
-            grid.addWidget(src_label, row, 1)
-            if "source" in item:
-                src_label.setPixmap(_make_thumb(item["source"]["cv2"]))
-                src_label.setText("")
-
-            x_label = QLabel("×")
-            x_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            grid.addWidget(x_label, row, 2)
-
-            tgt_label = QLabel(f"T-{row}")
-            tgt_label.setFixedSize(MAPPER_PREVIEW_SIZE, MAPPER_PREVIEW_SIZE)
-            tgt_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            tgt_label.setStyleSheet("border: 1px solid #555;")
-            grid.addWidget(tgt_label, row, 3)
-            if "target" in item:
-                tgt_label.setPixmap(_make_thumb(item["target"]["cv2"]))
-                tgt_label.setText("")
-
-        grid.setRowStretch(grid.rowCount(), 1)
-        self._scroll.setWidget(body)
-
-    def _select_source(self, row: int) -> None:
-        path, _f = QFileDialog.getOpenFileName(
-            self, _("select an source image"),
-            _RECENT_SOURCE_DIR or "",
-            "Images (*.png *.jpg *.jpeg *.gif *.bmp)",
-        )
-        if not path:
-            return
-        cv2_img = cv2.imread(path)
-        face = get_one_face(cv2_img)
-        if face is None:
-            self.set_status("Face could not be detected in last upload!")
-            return
-        x_min, y_min, x_max, y_max = face["bbox"]
-        self._map[row]["source"] = {
-            "cv2": cv2_img[int(y_min):int(y_max), int(x_min):int(x_max)],
-            "face": face,
-        }
-        self._rebuild()
-
-    def _on_submit(self) -> None:
-        if has_valid_map():
-            self.accept()
-            _MAIN._select_output_and_start()
-        else:
-            self.set_status("Atleast 1 source with target is required!")
 
 
 class LiveMapperDialog(QDialog):
@@ -1633,13 +1643,6 @@ class LiveMapperDialog(QDialog):
             self.set_status("At least 1 source with target is required!")
 
 
-def _open_mapper_dialog(start_cb: Callable, mapping: list) -> None:
-    global _MAPPER
-    close_mapper_window()
-    _MAPPER = MapperDialog(start_cb, mapping)
-    _MAPPER.show()
-
-
 def _open_live_mapper_dialog(camera_index: int, mapping: list) -> None:
     global _LIVE_MAPPER
     close_mapper_window()
@@ -1648,10 +1651,7 @@ def _open_live_mapper_dialog(camera_index: int, mapping: list) -> None:
 
 
 def close_mapper_window() -> None:
-    global _MAPPER, _LIVE_MAPPER
-    if _MAPPER is not None:
-        _MAPPER.close()
-        _MAPPER = None
+    global _LIVE_MAPPER
     if _LIVE_MAPPER is not None:
         _LIVE_MAPPER.close()
         _LIVE_MAPPER = None
@@ -1675,7 +1675,7 @@ class _Window:
 def init(
     start: Callable[[], None], destroy: Callable[[], None], lang: str
 ) -> _Window:
-    global _APP, _MAIN, _PREVIEW, _LANG, _BRIDGE
+    global _APP, _MAIN, _LANG, _BRIDGE
 
     _LANG = LanguageManager(lang)
     if QApplication.instance() is None:
@@ -1685,8 +1685,10 @@ def init(
     _APP.setStyleSheet(QSS)
 
     _BRIDGE = _UIBridge()
-    _MAIN = MainWindow(start, destroy)
-    _PREVIEW = PreviewWindow()
+    _MAIN = MainWindow(destroy)
+
+    # Apply the saved theme
+    apply_theme()
 
     # Route status updates onto the UI thread regardless of caller.
     _BRIDGE.statusChanged.connect(_MAIN.set_status)

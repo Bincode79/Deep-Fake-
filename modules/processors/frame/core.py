@@ -337,7 +337,7 @@ def _run_pipe_pipeline(
             # so the work overlaps.
             detect_executor = ThreadPoolExecutor(max_workers=1)
             pending_detect = None
-            use_pipeline = not modules.globals.many_faces
+            use_pipeline = True
 
             while True:
                 raw = reader.stdout.read(frame_size)

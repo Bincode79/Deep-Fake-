@@ -25,7 +25,7 @@ frame_processors: List[str] = []
 keep_fps: bool = True
 keep_audio: bool = True
 keep_frames: bool = False
-many_faces: bool = False         # Process all detected faces with default source
+
 map_faces: bool = False          # Use source_target_map or simple_map for specific swaps
 poisson_blend: bool = False      # Enable Poisson Blending for smoother face swaps
 color_correction: bool = False   # Enable color correction (implementation specific)
@@ -47,6 +47,7 @@ max_memory: int | None = None        # Memory limit in GB? (Needs clarification)
 execution_providers: List[str] = []  # e.g., ['CUDAExecutionProvider', 'CPUExecutionProvider']
 execution_threads: int | None = None # Number of threads for CPU execution
 headless: bool | None = None         # Run without UI?
+lang: str = "en"                     # UI language
 log_level: str = "error"             # Logging level (e.g., 'debug', 'info', 'warning', 'error')
 
 # Face Processor UI Toggles (Example)
@@ -65,16 +66,16 @@ mask_down_size: float = 0.1        # Expansion factor for lower lip mask (relati
 mask_size: float = 1.0             # Expansion factor for upper lip mask (relative)
 mouth_mask_size: float = 0.0       # Mouth mask size (0-100; 0=off, 100=mouth to chin)
 
+# Theme
+theme: str = "dark"  # "dark" or "light"
+
 # --- START: Added for Frame Interpolation ---
 enable_interpolation: bool = True # Toggle temporal smoothing
 interpolation_weight: float = 0  # Blend weight for current frame (0.0-1.0). Lower=smoother.
 # --- END: Added for Frame Interpolation ---
 
-# --- START: Added for Color Matching and Face Area Scaling ---
-color_correction_strength: float = 0.5 # Color matching slider value (0.0 - 1.0)
-face_area_scale: float = 0.7           # Face area swap coverage (0.5 - 1.0)
-gpu_acceleration: bool = True          # GPU Acceleration toggle
-# --- END: Added for Color Matching and Face Area Scaling ---
+# Cancel flag
+cancelled: bool = False
 
 # --- END OF FILE globals.py ---
 
