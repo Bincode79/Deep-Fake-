@@ -319,6 +319,7 @@ def _run_pipe_pipeline(
         return False
 
     processed_count = 0
+    cancelled_requested = False
     bar_fmt = ('{l_bar}{bar}| {n_fmt}/{total_fmt} '
                '[{elapsed}<{remaining}, {rate_fmt}{postfix}]')
 
@@ -340,6 +341,9 @@ def _run_pipe_pipeline(
             use_pipeline = True
 
             while True:
+                if modules.globals.cancelled:
+                    cancelled_requested = True
+                    break
                 raw = reader.stdout.read(frame_size)
                 if len(raw) != frame_size:
                     break
@@ -377,6 +381,25 @@ def _run_pipe_pipeline(
                 progress.update(1)
 
             detect_executor.shutdown(wait=True)
+
+        if cancelled_requested:
+            print("[DLC.CORE] Processing cancelled by user.")
+            try:
+                if writer and writer.stdin:
+                    writer.stdin.close()
+            except Exception:
+                pass
+            for proc in (reader, writer):
+                if proc and proc.poll() is None:
+                    try:
+                        proc.terminate()
+                        proc.wait(timeout=2)
+                    except Exception:
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
+            return False
 
         # Graceful shutdown
         writer.stdin.close()

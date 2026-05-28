@@ -5,7 +5,7 @@ import platform
 import shutil
 import ssl
 import subprocess
-import urllib
+import urllib.request
 from pathlib import Path
 from typing import List, Any
 from tqdm import tqdm

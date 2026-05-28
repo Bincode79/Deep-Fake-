@@ -42,7 +42,9 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QListWidget,
     QMainWindow,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -607,7 +609,7 @@ class MainWindow(QMainWindow):
         # Source face + live preview
         layout.addLayout(self._build_image_row())
 
-        # Progress table (replaces old Target card)
+        # Status merged into progress table
         layout.addWidget(self._build_progress_table())
 
         # Options grid
@@ -619,14 +621,10 @@ class MainWindow(QMainWindow):
         # Action buttons
         layout.addLayout(self._build_action_row())
 
-        # Camera selection
-        layout.addWidget(self._build_camera_card())
-
-        # Status & footer
-        self._status_label = QLabel("")
-        self._status_label.setObjectName("statusLabel")
-        self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self._status_label)
+        # Camera selection (ẩn nếu không có camera)
+        self._cam_card = self._build_camera_card()
+        if self._cam_card is not None:
+            layout.addWidget(self._cam_card)
 
         footer_row = QHBoxLayout()
         footer_row.setContentsMargins(0, 0, 0, 0)
@@ -665,11 +663,11 @@ class MainWindow(QMainWindow):
         layout.setSpacing(8)
 
         # Source face preview
-        self.source_label = _make_image_drop(_("Source face"), (200, 200))
+        self.source_label = _make_image_drop(_("Khuôn mặt nguồn"), (200, 200))
         layout.addWidget(self.source_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
         btn_row = QHBoxLayout()
-        self.btn_select_source = QPushButton(_("Select a face"))
+        self.btn_select_source = QPushButton(_("Chọn ảnh"))
         self.btn_select_source.setToolTip(
             _("Choose the source face image to swap onto the target")
         )
@@ -691,7 +689,7 @@ class MainWindow(QMainWindow):
     # ── options card ─────────────────────────────────────────────────────
 
     def _build_options_card(self) -> QGroupBox:
-        card = QGroupBox(_("Live Options"))
+        card = QGroupBox(_("Tùy chọn"))
         grid = QGridLayout(card)
         grid.setHorizontalSpacing(20)
         grid.setVerticalSpacing(6)
@@ -723,8 +721,9 @@ class MainWindow(QMainWindow):
         grid.addWidget(enhancer_label, 0, 0)
 
         self.cb_enhancer = QComboBox()
-        self.cb_enhancer.addItems(["None", "GFPGAN", "GPEN-512", "GPEN-256"])
-        initial = "None"
+        items = [_("None"), "GFPGAN", "GPEN-512", "GPEN-256"]
+        self.cb_enhancer.addItems(items)
+        initial = _("None")
         if modules.globals.fp_ui.get("face_enhancer", False):
             initial = "GFPGAN"
         elif modules.globals.fp_ui.get("face_enhancer_gpen512", False):
@@ -750,7 +749,7 @@ class MainWindow(QMainWindow):
     # ── sliders card ─────────────────────────────────────────────────────
 
     def _build_sliders_card(self) -> QGroupBox:
-        card = QGroupBox(_("Refinement"))
+        card = QGroupBox(_("Tinh chỉnh"))
         grid = QGridLayout(card)
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(10)
@@ -793,7 +792,7 @@ class MainWindow(QMainWindow):
         self.progress_step = QLabel(_("Sẵn sàng"))
         self.progress_step.setStyleSheet("font-size: 13px; font-weight: 600;")
         status_row.addWidget(self.progress_step, 1)
-        self.progress_time = QLabel("")
+        self.progress_time = QLabel("00:00")
         self.progress_time.setStyleSheet("color: #888; font-size: 11px;")
         status_row.addWidget(self.progress_time)
         layout.addLayout(status_row)
@@ -806,9 +805,22 @@ class MainWindow(QMainWindow):
         self.progress_bar.setTextVisible(True)
         layout.addWidget(self.progress_bar)
 
-        # Nhật ký xử lý (log)
+        # Nhật ký xử lý (log) + nút xóa
+        log_row = QHBoxLayout()
+        log_label = QLabel(_("Nhật ký:"))
+        log_label.setStyleSheet("font-size: 11px; color: #888;")
+        log_row.addWidget(log_label)
+        log_row.addStretch(1)
+        self.btn_clear_log = QPushButton(_("Xóa"))
+        self.btn_clear_log.setObjectName("secondary")
+        self.btn_clear_log.setFixedHeight(20)
+        self.btn_clear_log.setFixedWidth(50)
+        self.btn_clear_log.clicked.connect(self._on_clear_log)
+        log_row.addWidget(self.btn_clear_log)
+        layout.addLayout(log_row)
+
         self.progress_log = QListWidget()
-        self.progress_log.setMaximumHeight(120)
+        self.progress_log.setMaximumHeight(100)
         self.progress_log.setAlternatingRowColors(True)
         self.progress_log.setStyleSheet("QListWidget { font-size: 11px; } QListWidget::item { padding: 2px 4px; }")
         layout.addWidget(self.progress_log)
@@ -816,10 +828,10 @@ class MainWindow(QMainWindow):
         # File info row (thu gọn) — cho phép chọn target/output
         file_row = QHBoxLayout()
         file_row.setSpacing(4)
-        self.lbl_target = QLabel(_("No file selected"))
+        self.lbl_target = QLabel(_("Chưa chọn tệp"))
         self.lbl_target.setStyleSheet("color: #888; font-size: 11px;")
         self.lbl_target.setToolTip(_("Target file:"))
-        file_row.addWidget(QLabel("📁"), 0, Qt.AlignCenter)
+        file_row.addWidget(QLabel("📁"), 0, Qt.AlignmentFlag.AlignCenter)
         file_row.addWidget(self.lbl_target, 1)
         self.btn_select_target = QPushButton(_("Chọn tệp"))
         self.btn_select_target.setObjectName("secondary")
@@ -837,6 +849,11 @@ class MainWindow(QMainWindow):
         file_row.addWidget(self.btn_select_output)
         layout.addLayout(file_row)
 
+        # Bộ đếm thời gian chạy
+        self._elapsed_seconds = 0
+        self._elapsed_timer = QTimer(self)
+        self._elapsed_timer.timeout.connect(self._on_elapsed_tick)
+
         # Kết nối tín hiệu cập nhật
         self._progress_log_entries = []
         self._connect_progress()
@@ -844,7 +861,19 @@ class MainWindow(QMainWindow):
         return card
 
     def _connect_progress(self) -> None:
+        global _BRIDGE
+        if _BRIDGE is None:
+            _BRIDGE = _UIBridge()
         _BRIDGE.statusChanged.connect(self._on_progress_status)
+
+    def _on_elapsed_tick(self) -> None:
+        self._elapsed_seconds += 1
+        m, s = divmod(self._elapsed_seconds, 60)
+        self.progress_time.setText(f"{m:02d}:{s:02d}")
+
+    def _on_clear_log(self) -> None:
+        self.progress_log.clear()
+        self._progress_log_entries.clear()
 
     def _on_progress_status(self, text: str) -> None:
         """Cập nhật bảng tiến trình khi nhận được status mới."""
@@ -857,8 +886,9 @@ class MainWindow(QMainWindow):
         ts = datetime.now().strftime("%H:%M:%S")
         entry = f"[{ts}] {text}"
         self._progress_log_entries.append(entry)
-        if len(self._progress_log_entries) > 50:
+        if len(self._progress_log_entries) > 30:
             self._progress_log_entries.pop(0)
+            self.progress_log.takeItem(0)
         self.progress_log.addItem(entry)
         self.progress_log.scrollToBottom()
 
@@ -877,7 +907,9 @@ class MainWindow(QMainWindow):
         self.progress_icon.setText("⏳")
         self.progress_step.setText(_("Sẵn sàng"))
         self.progress_bar.setValue(0)
-        self.progress_time.setText("")
+        self._elapsed_seconds = 0
+        self.progress_time.setText("00:00")
+        self._elapsed_timer.stop()
         self.progress_log.clear()
         self._progress_log_entries.clear()
 
@@ -887,13 +919,20 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout()
         row.addStretch(1)
 
-        self.btn_start = QPushButton(_("Start"))
+        self.btn_start = QPushButton(_("Bắt đầu"))
         self.btn_start.setObjectName("primary")
         self.btn_start.setToolTip(_("Start processing the target image/video with the selected source face"))
         self.btn_start.clicked.connect(self._on_start)
         row.addWidget(self.btn_start)
 
-        self.btn_destroy = QPushButton(_("Destroy"))
+        self.btn_stop = QPushButton(_("Dừng"))
+        self.btn_stop.setObjectName("danger")
+        self.btn_stop.setToolTip(_("Dừng xử lý"))
+        self.btn_stop.clicked.connect(self._on_stop)
+        self.btn_stop.setVisible(False)
+        row.addWidget(self.btn_stop)
+
+        self.btn_destroy = QPushButton(_("Kết thúc"))
         self.btn_destroy.setObjectName("danger")
         self.btn_destroy.setToolTip(_("Stop processing and close the application"))
         self.btn_destroy.clicked.connect(lambda: self._destroy_cb())
@@ -901,28 +940,28 @@ class MainWindow(QMainWindow):
         row.addWidget(self.btn_destroy)
         return row
 
+    def _on_stop(self) -> None:
+        modules.globals.cancelled = True
+        update_status(_("Đã yêu cầu dừng..."))
+        self.btn_stop.setEnabled(False)
+
     # ── camera card ──────────────────────────────────────────────────────
 
     def _build_camera_card(self) -> QGroupBox:
+        self._camera_indices, self._camera_names = get_available_cameras()
+        if not self._camera_indices:
+            return None
         card = QGroupBox(_("Camera"))
         layout = QHBoxLayout(card)
 
         layout.addWidget(QLabel(_("Select Camera:")))
-        self._camera_indices, self._camera_names = get_available_cameras()
 
         self.cb_camera = QComboBox()
-        if not self._camera_names or self._camera_names[0] == "No cameras found":
-            self.cb_camera.addItem(_("No cameras found"))
-            self.cb_camera.setEnabled(False)
-            cam_ok = False
-        else:
-            self.cb_camera.addItems(self._camera_names)
-            cam_ok = True
+        self.cb_camera.addItems(self._camera_names)
         self.cb_camera.setToolTip(_("Select which camera to use for live mode"))
         layout.addWidget(self.cb_camera, 1)
 
         self.btn_live = QPushButton(_("Live"))
-        self.btn_live.setEnabled(cam_ok)
         self.btn_live.setToolTip(_("Start real-time face swap using webcam"))
         self.btn_live.clicked.connect(self._on_live)
         layout.addWidget(self.btn_live)
@@ -930,9 +969,6 @@ class MainWindow(QMainWindow):
         return card
 
     # ── slot handlers ────────────────────────────────────────────────────
-
-    def set_status(self, text: str) -> None:
-        self._status_label.setText(text)
 
     def _on_select_source(self) -> None:
         global _RECENT_SOURCE_DIR
@@ -951,7 +987,7 @@ class MainWindow(QMainWindow):
         else:
             modules.globals.source_path = None
             self.source_label.clear()
-            self.source_label.setText(_("Source face"))
+            self.source_label.setText(_("Khuôn mặt nguồn"))
 
     def _on_random_face(self) -> None:
         try:
@@ -969,6 +1005,31 @@ class MainWindow(QMainWindow):
             self.source_label.setText("")
         except Exception as exc:
             print(f"Failed to fetch random face: {exc}")
+
+    def _set_source_from_frame(self, face) -> None:
+        """Update source preview with a detected face (insightface object)."""
+        try:
+            from PIL import Image, ImageOps
+            img = face.bbox if hasattr(face, 'bbox') else None
+            # Extract face region from the original frame if available
+            if hasattr(face, 'detected_frame') and face.detected_frame is not None:
+                frame = face.detected_frame
+            else:
+                return
+            h, w = frame.shape[:2]
+            x1, y1, x2, y2 = [max(0, int(v)) for v in face.bbox]
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(w, x2), min(h, y2)
+            crop = frame[y1:y2, x1:x2]
+            if crop.size == 0:
+                return
+            rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+            image = Image.fromarray(rgb)
+            image = ImageOps.fit(image, (200, 200), Image.LANCZOS)
+            self.source_label.setPixmap(_pil_to_qpixmap(image))
+            self.source_label.setText("")
+        except Exception as e:
+            print(f"Failed to set source from frame: {e}")
 
     def _on_select_target(self) -> None:
         global _RECENT_SOURCE_DIR
@@ -1001,43 +1062,60 @@ class MainWindow(QMainWindow):
             self.lbl_output.setStyleSheet("color: #e6e6e6;")
 
     def _on_start(self) -> None:
-        if modules.globals.target_path is None:
-            self._on_select_target()
-            if modules.globals.target_path is None:
-                return
-        # Auto-detect source face from target if none selected
+        if self._stop_event is not None and not self._stop_event.is_set():
+            update_status("Please stop Live preview first")
+            return
         if modules.globals.source_path is None:
-            update_status("Đang phát hiện khuôn mặt từ target...")
-            ref_face = detect_first_face_from_target(modules.globals.target_path)
-            if ref_face is not None:
-                modules.globals.reference_face = ref_face
-                update_status("Đã tự động lấy khuôn mặt từ target")
-            else:
-                update_status("Không tìm thấy khuôn mặt nào trong target")
-                return
+            update_status("Please select a source image first")
+            return
+        if modules.globals.target_path is None:
+            update_status("Please select a target image or video")
+            return
         if not modules.globals.frame_processors:
             modules.globals.frame_processors = ["face_swapper"]
+        modules.globals.cancelled = False
         self._reset_progress()
         self.btn_start.setEnabled(False)
         self.btn_start.setText(_("Đang xử lý..."))
-        QTimer.singleShot(0, self._run_start)
-
-    def _run_start(self) -> None:
-        def task():
-            try:
-                modules.core.start()
-                QTimer.singleShot(0, lambda: self.progress_icon.setText("✅"))
-            except Exception as e:
-                update_status(f"Xử lý thất bại: {e}")
-            finally:
-                QTimer.singleShot(0, self._finish_start)
-
-        thread = threading.Thread(target=task, daemon=True)
+        self.btn_live.setEnabled(False)
+        self.btn_stop.setVisible(True)
+        self.btn_stop.setEnabled(True)
+        self._elapsed_timer.start(1000)
+        thread = threading.Thread(target=self._run_start, daemon=True)
         thread.start()
 
-    def _finish_start(self) -> None:
+    def _run_start(self) -> None:
+        ok = False
+        try:
+            modules.core.start()
+            ok = True
+        except Exception as e:
+            update_status(f"Processing failed: {e}")
+        finally:
+            cancelled = bool(getattr(modules.globals, "cancelled", False))
+            QTimer.singleShot(
+                0,
+                lambda c=cancelled, success=ok: self._finish_processing(c, success),
+            )
+
+    def _finish_processing(self, cancelled: bool, success: bool) -> None:
+        """UI-thread finalization after background processing completes."""
+        self._elapsed_timer.stop()
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.setVisible(False)
         self.btn_start.setText(_("Bắt đầu"))
         self.btn_start.setEnabled(True)
+        self.btn_live.setEnabled(True)
+
+        if cancelled:
+            self.progress_icon.setText("⏹️")
+            self.progress_step.setText(_("Đã hủy"))
+        elif success and self.progress_icon.text() not in ("❌",):
+            self.progress_icon.setText("✅")
+            self.progress_step.setText(_("Hoàn tất"))
+        elif self.progress_icon.text() not in ("❌",):
+            self.progress_icon.setText("❌")
+            self.progress_step.setText(_("Cảnh báo"))
 
     def _on_map_faces_toggled(self, value: bool) -> None:
         modules.globals.map_faces = value
@@ -1047,7 +1125,7 @@ class MainWindow(QMainWindow):
 
     def _on_enhancer_change(self, choice: str) -> None:
         key_map = {
-            "None": None,
+            _("None"): None,
             "GFPGAN": "face_enhancer",
             "GPEN-512": "face_enhancer_gpen512",
             "GPEN-256": "face_enhancer_gpen256",
@@ -1076,6 +1154,9 @@ class MainWindow(QMainWindow):
         update_status(_("Sharpness set to %.1f") % value)
 
     def _on_live(self) -> None:
+        if not self.btn_start.isEnabled():
+            update_status("Please wait for file processing to finish first")
+            return
         if self._stop_event is not None and not self._stop_event.is_set():
             self._stop_live_preview()
             return
@@ -1689,8 +1770,5 @@ def init(
 
     # Apply the saved theme
     apply_theme()
-
-    # Route status updates onto the UI thread regardless of caller.
-    _BRIDGE.statusChanged.connect(_MAIN.set_status)
 
     return _Window(_APP, _MAIN)

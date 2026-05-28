@@ -288,6 +288,11 @@ def start() -> None:
         processing_time = time.time() - processing_start
         release_resources()
 
+        if modules.globals.cancelled:
+            update_status('Processing cancelled.')
+            clean_temp(modules.globals.target_path)
+            return
+
         if video_created:
             update_status(f'In-memory processing + encoding completed in {processing_time:.2f}s')
 
@@ -295,12 +300,20 @@ def start() -> None:
     if not video_created:
         if not modules.globals.map_faces:
             update_status('Falling back to disk-based processing...')
+        if modules.globals.cancelled:
+            update_status('Processing cancelled.')
+            clean_temp(modules.globals.target_path)
+            return
 
         extraction_start = time.time()
         if not modules.globals.map_faces:
             create_temp(modules.globals.target_path)
             update_status('Extracting frames...')
             extract_frames(modules.globals.target_path)
+        if modules.globals.cancelled:
+            update_status('Processing cancelled.')
+            clean_temp(modules.globals.target_path)
+            return
         extraction_time = time.time() - extraction_start
 
         temp_frame_paths = get_temp_frame_paths(modules.globals.target_path)
@@ -309,6 +322,10 @@ def start() -> None:
 
         processing_start = time.time()
         for frame_processor in get_frame_processors_modules(modules.globals.frame_processors):
+            if modules.globals.cancelled:
+                update_status('Processing cancelled.')
+                clean_temp(modules.globals.target_path)
+                return
             update_status('Progressing...', frame_processor.NAME)
             frame_processor.process_video(modules.globals.source_path, temp_frame_paths)
             release_resources()
